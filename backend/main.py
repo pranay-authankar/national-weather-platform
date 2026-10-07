@@ -12,6 +12,10 @@ from services.open_meteo import (
     OpenMeteoAPIError,
     OpenMeteoResponseError,
 )
+from database import (
+    check_database_connection,
+    get_db_config,
+)
 
 app = FastAPI(
     title="National Weather Big Data Analytics Platform API",
@@ -25,6 +29,40 @@ def health_check() -> Dict[str, str]:
     Health check endpoint returning application status.
     """
     return {"status": "ok"}
+
+
+@app.get("/api/database/health")
+def database_health() -> Dict[str, Any]:
+    """
+    Temporary endpoint to verify PostgreSQL connectivity via Supabase Session Pooler.
+    Executes a lightweight SELECT 1 query to confirm connectivity without leaking secrets.
+    """
+    try:
+        check_database_connection()
+        config = get_db_config()
+        return {
+            "status": "ok",
+            "database": "connected",
+            "host": config["host"],
+            "port": config["port"],
+            "database_name": config["dbname"],
+            "user": config["user"],
+        }
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unexpected error while connecting to PostgreSQL.",
+        )
 
 
 @app.get("/api/weather/open-meteo")
