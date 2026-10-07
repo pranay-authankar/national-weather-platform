@@ -1,0 +1,41 @@
+import apiClient from './api';
+import type { EventFilters, EventsResponse, MapEventsResponse, WeatherEvent } from '../types/event';
+
+export async function getEvents(filters?: EventFilters): Promise<EventsResponse> {
+  const params: Record<string, string | number> = {};
+
+  if (filters) {
+    const keys: (keyof EventFilters)[] = [
+      'state',
+      'district',
+      'city',
+      'event_type',
+      'source',
+      'verification_status',
+      'from',
+      'to',
+      'limit',
+      'offset',
+    ];
+
+    for (const key of keys) {
+      const val = filters[key];
+      if (val !== undefined && val !== null && val !== '') {
+        params[key] = val;
+      }
+    }
+  }
+
+  const response = await apiClient.get<EventsResponse>('/api/events', { params });
+  return response.data;
+}
+
+export async function getEventById(eventId: string): Promise<WeatherEvent> {
+  const response = await apiClient.get<WeatherEvent>(`/api/events/${encodeURIComponent(eventId)}`);
+  return response.data;
+}
+
+export async function getMapEvents(): Promise<MapEventsResponse> {
+  const response = await apiClient.get<MapEventsResponse>('/api/events/map');
+  return response.data;
+}
