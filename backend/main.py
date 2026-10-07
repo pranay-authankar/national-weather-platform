@@ -163,6 +163,8 @@ async def test_ingest_open_meteo(
             "status": "success",
             "message": "Weather event successfully ingested into PostgreSQL weather_events table.",
             "event_id": inserted_event["event_id"],
+            "weather_code": inserted_event.get("weather_code"),
+            "classified_event_type": inserted_event["event_type"],
             "inserted_values": {
                 "source": inserted_event["source"],
                 "source_record_id": inserted_event["source_record_id"],

@@ -9,6 +9,7 @@ import psycopg
 
 from database import get_db_connection
 from services.open_meteo import fetch_open_meteo_weather
+from services.weather_event_classifier import classify_open_meteo_observation
 
 
 def normalize_open_meteo_record(
@@ -20,6 +21,7 @@ def normalize_open_meteo_record(
 ) -> Dict[str, Any]:
     """
     Normalize raw Open-Meteo response into a structured weather_events dictionary.
+    Uses the deterministic weather_event_classifier to determine event_type.
 
     Parameters:
         raw_data (Dict[str, Any]): Raw JSON response from Open-Meteo API.
@@ -46,10 +48,13 @@ def normalize_open_meteo_record(
     time_str = event_timestamp.strftime("%Y%m%dT%H%M%SZ")
     source_record_id = f"open_meteo_{latitude}_{longitude}_{time_str}"
 
+    # Classify event_type using deterministic rules
+    event_type = classify_open_meteo_observation(current)
+
     return {
         "source": "Open_Meteo",
         "source_record_id": source_record_id,
-        "event_type": "Other",
+        "event_type": event_type,
         "description": None,
         "event_timestamp": event_timestamp,
         "latitude": latitude,
@@ -177,16 +182,17 @@ async def ingest_open_meteo_weather(
     state: Optional[str] = "Chhattisgarh",
 ) -> Dict[str, Any]:
     """
-    Orchestrate fetching real weather data from Open-Meteo, normalizing the payload,
-    and persisting it into the weather_events table.
+    Orchestrate fetching real weather data from Open-Meteo, normalizing the payload
+    with deterministic classification, and persisting it into the weather_events table.
 
     Returns:
-        Dict[str, Any]: Inserted weather event record details.
+        Dict[str, Any]: Inserted weather event record details along with weather_code.
     """
     # 1. Fetch live weather data from Open-Meteo
     raw_weather = await fetch_open_meteo_weather(latitude=latitude, longitude=longitude)
+    current = raw_weather.get("current", {})
 
-    # 2. Normalize response to weather_events schema
+    # 2. Normalize response to weather_events schema using deterministic classifier
     normalized_record = normalize_open_meteo_record(
         raw_data=raw_weather,
         latitude=latitude,
@@ -197,5 +203,8 @@ async def ingest_open_meteo_weather(
 
     # 3. Insert record into database using parameterized SQL
     inserted_record = insert_weather_event(normalized_record)
+
+    # Include weather_code in metadata for API transparency
+    inserted_record["weather_code"] = current.get("weather_code")
 
     return inserted_record
