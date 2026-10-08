@@ -26,6 +26,7 @@ from database import (
     check_database_connection,
     get_db_config,
 )
+from routers.events import router as events_router
 from routers.reports import router as reports_router
 
 app = FastAPI(
@@ -35,6 +36,7 @@ app = FastAPI(
 
 # Register routers
 app.include_router(reports_router)
+app.include_router(events_router)
 
 
 
