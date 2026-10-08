@@ -238,6 +238,36 @@
   background-color: #94a3b8;
 }
 
+.api-status-badge.checking {
+  border-color: #fde047;
+  background-color: #fefce8;
+  color: #854d0e;
+}
+
+.api-status-badge.checking .status-dot {
+  background-color: #eab308;
+}
+
+.api-status-badge.online {
+  border-color: #86efac;
+  background-color: #f0fdf4;
+  color: #166534;
+}
+
+.api-status-badge.online .status-dot {
+  background-color: #22c55e;
+}
+
+.api-status-badge.offline {
+  border-color: #fca5a5;
+  background-color: #fef2f2;
+  color: #991b1b;
+}
+
+.api-status-badge.offline .status-dot {
+  background-color: #ef4444;
+}
+
 /* --------------------------------------------------------------------------
    Content Area & Pages
    -------------------------------------------------------------------------- */
