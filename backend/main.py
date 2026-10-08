@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 from fastapi import FastAPI, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
 
 # Ensure backend root directory is in sys.path
 backend_dir = Path(__file__).resolve().parent
@@ -34,6 +35,20 @@ from routers.reports import router as reports_router
 app = FastAPI(
     title="National Weather Big Data Analytics Platform API",
     version="0.1.0",
+)
+
+# CORS Configuration
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 # Register routers
