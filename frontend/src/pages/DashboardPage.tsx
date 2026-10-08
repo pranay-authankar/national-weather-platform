@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, type FC, type FormEvent } from 'react';
-import { AlertCircle, X, ExternalLink } from 'lucide-react';
+import { AlertCircle, X, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getEvents, getEventById } from '../services/eventsApi';
-import type { WeatherEvent, EventFilters } from '../types/event';
+import type { WeatherEvent, EventFilters, EventsResponse } from '../types/event';
 import { EVENT_TYPES, DATA_SOURCES, VERIFICATION_STATUSES } from '../utils/constants';
+
+const PAGE_SIZE = 10;
 
 function formatLocation(event: WeatherEvent): string {
   if (event.city && event.state) {
@@ -70,6 +72,9 @@ function toLocalDayEndIso(dateStr: string): string | undefined {
 export const DashboardPage: FC = () => {
   const [events, setEvents] = useState<WeatherEvent[]>([]);
   const [total, setTotal] = useState<number>(0);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [appliedFilters, setAppliedFilters] = useState<EventFilters>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,9 +94,14 @@ export const DashboardPage: FC = () => {
   const [detailLoading, setDetailLoading] = useState<boolean>(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  const processFetchedEvents = (fetchedEvents: WeatherEvent[], totalCount?: number) => {
+  const processFetchedEvents = (data?: EventsResponse) => {
+    const fetchedEvents = data?.data ?? [];
+    const pagination = data?.pagination;
+
     setEvents(fetchedEvents);
-    setTotal(totalCount ?? fetchedEvents.length);
+    setTotal(pagination?.total ?? fetchedEvents.length);
+    setCurrentPage(pagination?.page ?? 1);
+    setTotalPages(pagination?.total_pages ?? (fetchedEvents.length > 0 ? 1 : 0));
     setLoading(false);
 
     setKnownStates((prev) => {
@@ -110,13 +120,13 @@ export const DashboardPage: FC = () => {
     });
   };
 
-  const fetchEvents = useCallback((filters?: EventFilters) => {
+  const fetchEvents = useCallback((page: number = 1, filters?: EventFilters) => {
     setLoading(true);
     setError(null);
 
-    getEvents({ page: 1, page_size: 10, ...filters })
+    getEvents({ page, page_size: PAGE_SIZE, ...filters })
       .then((data) => {
-        processFetchedEvents(data?.data ?? [], data?.pagination?.total);
+        processFetchedEvents(data);
       })
       .catch(() => {
         setError('Unable to load weather events.');
@@ -127,10 +137,10 @@ export const DashboardPage: FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    getEvents({ page: 1, page_size: 10 })
+    getEvents({ page: 1, page_size: PAGE_SIZE })
       .then((data) => {
         if (!isMounted) return;
-        processFetchedEvents(data?.data ?? [], data?.pagination?.total);
+        processFetchedEvents(data);
       })
       .catch(() => {
         if (!isMounted) return;
@@ -157,7 +167,8 @@ export const DashboardPage: FC = () => {
     const endTime = toLocalDayEndIso(dateTo);
     if (endTime) filters.end_time = endTime;
 
-    fetchEvents(filters);
+    setAppliedFilters(filters);
+    fetchEvents(1, filters);
   };
 
   const handleClearFilters = () => {
@@ -169,7 +180,21 @@ export const DashboardPage: FC = () => {
     setDateFrom('');
     setDateTo('');
 
-    fetchEvents();
+    setAppliedFilters({});
+    fetchEvents(1, {});
+  };
+
+  const handlePreviousPage = () => {
+    if (currentPage <= 1 || loading) return;
+    const targetPage = currentPage - 1;
+    fetchEvents(targetPage, appliedFilters);
+  };
+
+  const handleNextPage = () => {
+    const maxPages = totalPages > 0 ? totalPages : 1;
+    if (currentPage >= maxPages || loading) return;
+    const targetPage = currentPage + 1;
+    fetchEvents(targetPage, appliedFilters);
   };
 
   const handleSelectEvent = (eventId: string) => {
@@ -359,51 +384,81 @@ export const DashboardPage: FC = () => {
         )}
 
         {!loading && !error && events.length > 0 && (
-          <div className="events-table-container">
-            <table className="events-table">
-              <thead>
-                <tr>
-                  <th scope="col">Event Type</th>
-                  <th scope="col">Location</th>
-                  <th scope="col">Timestamp</th>
-                  <th scope="col">Source</th>
-                  <th scope="col">Verification Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((event) => (
-                  <tr
-                    key={event.event_id}
-                    className={`event-row clickable ${selectedEventId === event.event_id ? 'selected' : ''}`}
-                    onClick={() => handleSelectEvent(event.event_id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleSelectEvent(event.event_id);
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`View details for ${event.event_type} in ${formatLocation(event)}`}
-                  >
-                    <td>
-                      <span className="event-type-badge">{event.event_type}</span>
-                    </td>
-                    <td className="event-cell-location">{formatLocation(event)}</td>
-                    <td className="event-cell-time">{formatTimestamp(event.event_timestamp)}</td>
-                    <td className="event-cell-source">{event.source}</td>
-                    <td>
-                      <span
-                        className={`verification-badge ${(event.verification_status || '').toLowerCase()}`}
-                      >
-                        {event.verification_status || 'Unverified'}
-                      </span>
-                    </td>
+          <>
+            <div className="events-table-container">
+              <table className="events-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Event Type</th>
+                    <th scope="col">Location</th>
+                    <th scope="col">Timestamp</th>
+                    <th scope="col">Source</th>
+                    <th scope="col">Verification Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {events.map((event) => (
+                    <tr
+                      key={event.event_id}
+                      className={`event-row clickable ${selectedEventId === event.event_id ? 'selected' : ''}`}
+                      onClick={() => handleSelectEvent(event.event_id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleSelectEvent(event.event_id);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`View details for ${event.event_type} in ${formatLocation(event)}`}
+                    >
+                      <td>
+                        <span className="event-type-badge">{event.event_type}</span>
+                      </td>
+                      <td className="event-cell-location">{formatLocation(event)}</td>
+                      <td className="event-cell-time">{formatTimestamp(event.event_timestamp)}</td>
+                      <td className="event-cell-source">{event.source}</td>
+                      <td>
+                        <span
+                          className={`verification-badge ${(event.verification_status || '').toLowerCase()}`}
+                        >
+                          {event.verification_status || 'Unverified'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="dashboard-pagination" aria-label="Table pagination">
+              <button
+                type="button"
+                className="pagination-btn"
+                onClick={handlePreviousPage}
+                disabled={currentPage <= 1 || loading}
+                aria-label="Previous page"
+              >
+                <ChevronLeft size={15} aria-hidden="true" />
+                <span>Previous</span>
+              </button>
+
+              <span className="pagination-info" aria-live="polite">
+                Page {currentPage} of {totalPages > 0 ? totalPages : 1}
+              </span>
+
+              <button
+                type="button"
+                className="pagination-btn"
+                onClick={handleNextPage}
+                disabled={currentPage >= (totalPages > 0 ? totalPages : 1) || loading}
+                aria-label="Next page"
+              >
+                <span>Next</span>
+                <ChevronRight size={15} aria-hidden="true" />
+              </button>
+            </div>
+          </>
         )}
       </div>
 
