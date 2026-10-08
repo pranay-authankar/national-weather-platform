@@ -12,10 +12,10 @@ export async function getEvents(filters?: EventFilters): Promise<EventsResponse>
       'event_type',
       'source',
       'verification_status',
-      'from',
-      'to',
-      'limit',
-      'offset',
+      'start_time',
+      'end_time',
+      'page',
+      'page_size',
     ];
 
     for (const key of keys) {

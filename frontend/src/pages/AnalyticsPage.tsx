@@ -54,29 +54,31 @@ export const AnalyticsPage: FC = () => {
     };
   }, []);
 
-  const eventTypeData = summary
-    ? Object.entries(summary.event_type_counts || {})
-        .filter(([, count]) => typeof count === 'number' && count > 0)
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count)
+  const eventTypeData = summary?.events_by_type
+    ? summary.events_by_type
+        .filter((item) => typeof item.count === 'number' && item.count > 0)
+        .map((item) => ({ name: item.event_type, count: item.count }))
     : [];
 
-  const stateData = summary
-    ? Object.entries(summary.state_counts || {})
-        .filter(([, count]) => typeof count === 'number' && count > 0)
-        .map(([state, count]) => ({ state, count }))
-        .sort((a, b) => b.count - a.count)
+  const stateData = summary?.events_by_state
+    ? summary.events_by_state
+        .filter((item) => typeof item.count === 'number' && item.count > 0)
+        .map((item) => ({ state: item.state, count: item.count }))
         .slice(0, 10)
     : [];
 
-  const sourceData = summary
-    ? Object.entries(summary.source_counts || {})
-        .filter(([, count]) => typeof count === 'number' && count > 0)
-        .map(([source, count]) => ({ source, count }))
-        .sort((a, b) => b.count - a.count)
+  const sourceData = summary?.events_by_source
+    ? summary.events_by_source
+        .filter((item) => typeof item.count === 'number' && item.count > 0)
+        .map((item) => ({ source: item.source, count: item.count }))
     : [];
 
-  const verificationData = summary
+  const verificationList = summary?.verification_breakdown || summary?.events_by_verification;
+  const verificationData = verificationList
+    ? verificationList
+        .filter((item) => typeof item.count === 'number' && item.count > 0)
+        .map((item) => ({ name: item.status, count: item.count }))
+    : summary
     ? [
         { name: 'Verified', count: summary.verified_events || 0 },
         { name: 'Unverified', count: summary.unverified_events || 0 },
@@ -89,7 +91,8 @@ export const AnalyticsPage: FC = () => {
     (summary.total_events === 0 &&
       eventTypeData.length === 0 &&
       stateData.length === 0 &&
-      sourceData.length === 0);
+      sourceData.length === 0 &&
+      verificationData.length === 0);
 
   return (
     <div className="analytics-page">

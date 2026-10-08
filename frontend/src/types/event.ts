@@ -28,20 +28,19 @@ export type VerificationStatus =
 export interface WeatherEvent {
   event_id: string;
   source: string;
-  source_record_id: string;
   event_type: string;
-  description: string;
-  timestamp: string;
+  description: string | null;
+  event_timestamp: string;
   latitude: number | null;
   longitude: number | null;
-  city: string;
-  district: string;
-  state: string;
+  city: string | null;
+  district: string | null;
+  state: string | null;
   temperature: number | null;
   rainfall: number | null;
   humidity: number | null;
   wind_speed: number | null;
-  wind_direction: string | null;
+  wind_direction: number | null;
   pressure: number | null;
   image_url: string | null;
   video_url: string | null;
@@ -54,21 +53,33 @@ export interface WeatherEvent {
 
 export interface MapWeatherEvent {
   event_id: string;
+  latitude: number;
+  longitude: number;
   event_type: string;
-  latitude: number | null;
-  longitude: number | null;
-  timestamp: string;
+  source: string;
+  event_timestamp: string;
+  city: string | null;
+  district: string | null;
+  state: string | null;
   verification_status: string;
   confidence_score: number | null;
 }
 
-export interface EventsResponse {
-  events: WeatherEvent[];
+export interface PaginationMetadata {
+  page: number;
+  page_size: number;
   total: number;
+  total_pages: number;
+}
+
+export interface EventsResponse {
+  data: WeatherEvent[];
+  pagination: PaginationMetadata;
 }
 
 export interface MapEventsResponse {
-  events: MapWeatherEvent[];
+  data: MapWeatherEvent[];
+  count: number;
 }
 
 export interface EventFilters {
@@ -78,8 +89,8 @@ export interface EventFilters {
   event_type?: string;
   source?: string;
   verification_status?: string;
-  from?: string;
-  to?: string;
-  limit?: number;
-  offset?: number;
+  start_time?: string;
+  end_time?: string;
+  page?: number;
+  page_size?: number;
 }

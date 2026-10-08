@@ -55,6 +55,18 @@ function hasMeasurements(event: WeatherEvent): boolean {
   );
 }
 
+function toLocalDayStartIso(dateStr: string): string | undefined {
+  if (!dateStr) return undefined;
+  const d = new Date(`${dateStr}T00:00:00`);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+function toLocalDayEndIso(dateStr: string): string | undefined {
+  if (!dateStr) return undefined;
+  const d = new Date(`${dateStr}T23:59:59.999`);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
 export const DashboardPage: FC = () => {
   const [events, setEvents] = useState<WeatherEvent[]>([]);
   const [total, setTotal] = useState<number>(0);
@@ -85,14 +97,14 @@ export const DashboardPage: FC = () => {
     setKnownStates((prev) => {
       const combined = new Set([
         ...prev,
-        ...fetchedEvents.map((e) => e.state).filter(Boolean),
+        ...fetchedEvents.map((e) => e.state).filter((s): s is string => Boolean(s)),
       ]);
       return Array.from(combined).sort();
     });
     setKnownDistricts((prev) => {
       const combined = new Set([
         ...prev,
-        ...fetchedEvents.map((e) => e.district).filter(Boolean),
+        ...fetchedEvents.map((e) => e.district).filter((d): d is string => Boolean(d)),
       ]);
       return Array.from(combined).sort();
     });
@@ -102,9 +114,9 @@ export const DashboardPage: FC = () => {
     setLoading(true);
     setError(null);
 
-    getEvents({ limit: 10, ...filters })
+    getEvents({ page: 1, page_size: 10, ...filters })
       .then((data) => {
-        processFetchedEvents(data?.events ?? [], data?.total);
+        processFetchedEvents(data?.data ?? [], data?.pagination?.total);
       })
       .catch(() => {
         setError('Unable to load weather events.');
@@ -115,10 +127,10 @@ export const DashboardPage: FC = () => {
   useEffect(() => {
     let isMounted = true;
 
-    getEvents({ limit: 10 })
+    getEvents({ page: 1, page_size: 10 })
       .then((data) => {
         if (!isMounted) return;
-        processFetchedEvents(data?.events ?? [], data?.total);
+        processFetchedEvents(data?.data ?? [], data?.pagination?.total);
       })
       .catch(() => {
         if (!isMounted) return;
@@ -140,8 +152,10 @@ export const DashboardPage: FC = () => {
     if (selectedEventType) filters.event_type = selectedEventType;
     if (selectedStatus) filters.verification_status = selectedStatus;
     if (selectedSource) filters.source = selectedSource;
-    if (dateFrom) filters.from = `${dateFrom}T00:00:00Z`;
-    if (dateTo) filters.to = `${dateTo}T23:59:59Z`;
+    const startTime = toLocalDayStartIso(dateFrom);
+    if (startTime) filters.start_time = startTime;
+    const endTime = toLocalDayEndIso(dateTo);
+    if (endTime) filters.end_time = endTime;
 
     fetchEvents(filters);
   };
@@ -376,7 +390,7 @@ export const DashboardPage: FC = () => {
                       <span className="event-type-badge">{event.event_type}</span>
                     </td>
                     <td className="event-cell-location">{formatLocation(event)}</td>
-                    <td className="event-cell-time">{formatTimestamp(event.timestamp)}</td>
+                    <td className="event-cell-time">{formatTimestamp(event.event_timestamp)}</td>
                     <td className="event-cell-source">{event.source}</td>
                     <td>
                       <span
@@ -467,7 +481,7 @@ export const DashboardPage: FC = () => {
                       </div>
                       <div className="detail-item">
                         <dt>Recorded Time</dt>
-                        <dd>{formatTimestamp(selectedEvent.timestamp)}</dd>
+                        <dd>{formatTimestamp(selectedEvent.event_timestamp)}</dd>
                       </div>
                       <div className="detail-item">
                         <dt>Data Source</dt>
@@ -513,8 +527,9 @@ export const DashboardPage: FC = () => {
                             <dt>Wind</dt>
                             <dd>
                               {selectedEvent.wind_speed} km/h
-                              {selectedEvent.wind_direction
-                                ? ` (${selectedEvent.wind_direction})`
+                              {selectedEvent.wind_direction !== null &&
+                              selectedEvent.wind_direction !== undefined
+                                ? ` (${selectedEvent.wind_direction}°)`
                                 : ''}
                             </dd>
                           </div>

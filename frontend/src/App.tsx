@@ -4,6 +4,7 @@ import type { NavigationTab } from './components/layout/Sidebar';
 import DashboardPage from './pages/DashboardPage';
 import MapPage from './pages/MapPage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import ReportsPage from './pages/ReportsPage';
 import './App.css';
 
 function App() {
@@ -17,19 +18,7 @@ function App() {
 
       {activeTab === 'analytics' && <AnalyticsPage />}
 
-      {activeTab === 'reports' && (
-        <div className="module-placeholder">
-          <div className="page-header">
-            <h2 className="page-title">Citizen Weather Reports</h2>
-            <p className="page-subtitle">
-              Public crowdsourced incident submissions and localized ground observations.
-            </p>
-          </div>
-          <div className="placeholder-box">
-            <p className="placeholder-text">Citizen reporting interface scheduled for upcoming module task.</p>
-          </div>
-        </div>
-      )}
+      {activeTab === 'reports' && <ReportsPage />}
 
       {activeTab === 'verification' && (
         <div className="module-placeholder">

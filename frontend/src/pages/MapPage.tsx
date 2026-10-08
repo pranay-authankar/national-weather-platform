@@ -112,7 +112,7 @@ export const MapPage: FC = () => {
     getMapEvents()
       .then((data) => {
         if (!isMounted) return;
-        setEvents(data?.events ?? []);
+        setEvents(data?.data ?? []);
         setLoading(false);
       })
       .catch(() => {
@@ -247,7 +247,7 @@ export const MapPage: FC = () => {
 
                   <div className="map-popup-meta">
                     <div className="map-popup-location">{formatMapLocation(event)}</div>
-                    <div className="map-popup-time">{formatTimestamp(event.timestamp)}</div>
+                    <div className="map-popup-time">{formatTimestamp(event.event_timestamp)}</div>
                     {event.confidence_score !== null &&
                       event.confidence_score !== undefined && (
                         <div className="map-popup-confidence">
@@ -365,7 +365,7 @@ export const MapPage: FC = () => {
                       </div>
                       <div className="detail-item">
                         <dt>Recorded Time</dt>
-                        <dd>{formatTimestamp(selectedEvent.timestamp)}</dd>
+                        <dd>{formatTimestamp(selectedEvent.event_timestamp)}</dd>
                       </div>
                       <div className="detail-item">
                         <dt>Data Source</dt>
@@ -411,8 +411,9 @@ export const MapPage: FC = () => {
                             <dt>Wind</dt>
                             <dd>
                               {selectedEvent.wind_speed} km/h
-                              {selectedEvent.wind_direction
-                                ? ` (${selectedEvent.wind_direction})`
+                              {selectedEvent.wind_direction !== null &&
+                              selectedEvent.wind_direction !== undefined
+                                ? ` (${selectedEvent.wind_direction}°)`
                                 : ''}
                             </dd>
                           </div>
