@@ -1,6 +1,6 @@
-import { useState, useEffect, type FC } from 'react';
-import { AlertCircle } from 'lucide-react';
-import { getEvents } from '../services/eventsApi';
+import { useState, useEffect, useCallback, type FC } from 'react';
+import { AlertCircle, X, ExternalLink } from 'lucide-react';
+import { getEvents, getEventById } from '../services/eventsApi';
 import type { WeatherEvent } from '../types/event';
 
 function formatLocation(event: WeatherEvent): string {
@@ -22,6 +22,11 @@ function formatLocation(event: WeatherEvent): string {
   return 'Location unavailable';
 }
 
+function formatDetailLocation(event: WeatherEvent): string {
+  const parts = [event.city, event.district, event.state].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : 'Location unavailable';
+}
+
 function formatTimestamp(isoString: string): string {
   if (!isoString) return '—';
   try {
@@ -39,11 +44,26 @@ function formatTimestamp(isoString: string): string {
   }
 }
 
+function hasMeasurements(event: WeatherEvent): boolean {
+  return (
+    event.rainfall !== null ||
+    event.temperature !== null ||
+    event.humidity !== null ||
+    event.wind_speed !== null ||
+    event.pressure !== null
+  );
+}
+
 export const DashboardPage: FC = () => {
   const [events, setEvents] = useState<WeatherEvent[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<WeatherEvent | null>(null);
+  const [detailLoading, setDetailLoading] = useState<boolean>(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -66,6 +86,45 @@ export const DashboardPage: FC = () => {
       isMounted = false;
     };
   }, []);
+
+  const handleSelectEvent = (eventId: string) => {
+    setSelectedEventId(eventId);
+    setSelectedEvent(null);
+    setDetailLoading(true);
+    setDetailError(null);
+
+    getEventById(eventId)
+      .then((data) => {
+        setSelectedEvent(data);
+        setDetailLoading(false);
+      })
+      .catch(() => {
+        setDetailError('Unable to load event details.');
+        setDetailLoading(false);
+      });
+  };
+
+  const handleCloseDetail = useCallback(() => {
+    setSelectedEventId(null);
+    setSelectedEvent(null);
+    setDetailLoading(false);
+    setDetailError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedEventId) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleCloseDetail();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedEventId, handleCloseDetail]);
 
   return (
     <div className="dashboard-page">
@@ -117,7 +176,20 @@ export const DashboardPage: FC = () => {
               </thead>
               <tbody>
                 {events.map((event) => (
-                  <tr key={event.event_id} className="event-row">
+                  <tr
+                    key={event.event_id}
+                    className={`event-row clickable ${selectedEventId === event.event_id ? 'selected' : ''}`}
+                    onClick={() => handleSelectEvent(event.event_id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSelectEvent(event.event_id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View details for ${event.event_type} in ${formatLocation(event)}`}
+                  >
                     <td>
                       <span className="event-type-badge">{event.event_type}</span>
                     </td>
@@ -138,6 +210,196 @@ export const DashboardPage: FC = () => {
           </div>
         )}
       </div>
+
+      {selectedEventId && (
+        <>
+          <div
+            className="drawer-backdrop"
+            onClick={handleCloseDetail}
+            aria-hidden="true"
+          />
+          <aside
+            className="event-detail-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="detail-drawer-title"
+          >
+            <div className="drawer-header">
+              <h3 id="detail-drawer-title" className="drawer-title">
+                Event Details
+              </h3>
+              <button
+                type="button"
+                className="drawer-close-btn"
+                onClick={handleCloseDetail}
+                aria-label="Close event details"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="drawer-body">
+              {detailLoading && (
+                <div className="detail-state-box loading">
+                  <span className="detail-state-text">Loading event details...</span>
+                </div>
+              )}
+
+              {!detailLoading && detailError && (
+                <div className="detail-error-banner" role="alert">
+                  <AlertCircle size={15} className="error-banner-icon" aria-hidden="true" />
+                  <span className="error-banner-text">{detailError}</span>
+                </div>
+              )}
+
+              {!detailLoading && !detailError && selectedEvent && (
+                <div className="detail-content">
+                  <div className="detail-badge-group">
+                    <span className="event-type-badge">{selectedEvent.event_type}</span>
+                    <span
+                      className={`verification-badge ${(selectedEvent.verification_status || '').toLowerCase()}`}
+                    >
+                      {selectedEvent.verification_status || 'Unverified'}
+                    </span>
+                    {selectedEvent.confidence_score !== null &&
+                      selectedEvent.confidence_score !== undefined && (
+                        <span className="confidence-badge">
+                          {selectedEvent.confidence_score}% Confidence
+                        </span>
+                      )}
+                  </div>
+
+                  {selectedEvent.description && selectedEvent.description.trim() && (
+                    <div className="detail-section">
+                      <h4 className="detail-label">Description</h4>
+                      <p className="detail-description">{selectedEvent.description}</p>
+                    </div>
+                  )}
+
+                  <div className="detail-section">
+                    <h4 className="detail-label">Event Information</h4>
+                    <dl className="detail-grid">
+                      <div className="detail-item">
+                        <dt>Location</dt>
+                        <dd>{formatDetailLocation(selectedEvent)}</dd>
+                      </div>
+                      <div className="detail-item">
+                        <dt>Recorded Time</dt>
+                        <dd>{formatTimestamp(selectedEvent.timestamp)}</dd>
+                      </div>
+                      <div className="detail-item">
+                        <dt>Data Source</dt>
+                        <dd>{selectedEvent.source}</dd>
+                      </div>
+                      {selectedEvent.latitude !== null &&
+                        selectedEvent.longitude !== null && (
+                          <div className="detail-item">
+                            <dt>Coordinates</dt>
+                            <dd>
+                              {selectedEvent.latitude.toFixed(4)}°,{' '}
+                              {selectedEvent.longitude.toFixed(4)}°
+                            </dd>
+                          </div>
+                        )}
+                    </dl>
+                  </div>
+
+                  {hasMeasurements(selectedEvent) && (
+                    <div className="detail-section">
+                      <h4 className="detail-label">Weather Observations</h4>
+                      <dl className="detail-grid">
+                        {selectedEvent.rainfall !== null && (
+                          <div className="detail-item">
+                            <dt>Rainfall</dt>
+                            <dd>{selectedEvent.rainfall} mm</dd>
+                          </div>
+                        )}
+                        {selectedEvent.temperature !== null && (
+                          <div className="detail-item">
+                            <dt>Temperature</dt>
+                            <dd>{selectedEvent.temperature} °C</dd>
+                          </div>
+                        )}
+                        {selectedEvent.humidity !== null && (
+                          <div className="detail-item">
+                            <dt>Humidity</dt>
+                            <dd>{selectedEvent.humidity}%</dd>
+                          </div>
+                        )}
+                        {selectedEvent.wind_speed !== null && (
+                          <div className="detail-item">
+                            <dt>Wind</dt>
+                            <dd>
+                              {selectedEvent.wind_speed} km/h
+                              {selectedEvent.wind_direction
+                                ? ` (${selectedEvent.wind_direction})`
+                                : ''}
+                            </dd>
+                          </div>
+                        )}
+                        {selectedEvent.pressure !== null && (
+                          <div className="detail-item">
+                            <dt>Pressure</dt>
+                            <dd>{selectedEvent.pressure} hPa</dd>
+                          </div>
+                        )}
+                      </dl>
+                    </div>
+                  )}
+
+                  {(selectedEvent.image_url ||
+                    selectedEvent.video_url ||
+                    selectedEvent.source_url) && (
+                    <div className="detail-section">
+                      <h4 className="detail-label">Media & Evidence</h4>
+                      <div className="detail-media-links">
+                        {selectedEvent.image_url && (
+                          <div className="detail-image-box">
+                            <a
+                              href={selectedEvent.image_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="detail-image-link"
+                            >
+                              <img
+                                src={selectedEvent.image_url}
+                                alt={`Observation for ${selectedEvent.event_type}`}
+                                className="detail-image-preview"
+                              />
+                            </a>
+                          </div>
+                        )}
+                        {selectedEvent.video_url && (
+                          <a
+                            href={selectedEvent.video_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="detail-link-btn"
+                          >
+                            <ExternalLink size={14} aria-hidden="true" />
+                            <span>Watch Video Footage</span>
+                          </a>
+                        )}
+                        {selectedEvent.source_url && (
+                          <a
+                            href={selectedEvent.source_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="detail-link-btn"
+                          >
+                            <ExternalLink size={14} aria-hidden="true" />
+                            <span>View Source Record</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </aside>
+        </>
+      )}
     </div>
   );
 };
