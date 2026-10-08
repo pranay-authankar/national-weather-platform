@@ -26,6 +26,7 @@ from database import (
     check_database_connection,
     get_db_config,
 )
+from routers.analytics import router as analytics_router
 from routers.events import router as events_router
 from routers.map import router as map_router
 from routers.reports import router as reports_router
@@ -37,6 +38,7 @@ app = FastAPI(
 
 # Register routers
 app.include_router(reports_router)
+app.include_router(analytics_router)
 app.include_router(map_router)
 app.include_router(events_router)
 
