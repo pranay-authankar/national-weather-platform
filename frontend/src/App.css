@@ -1784,4 +1784,121 @@
   }
 }
 
+/* --------------------------------------------------------------------------
+   Verification Dashboard Module
+   -------------------------------------------------------------------------- */
+.verification-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.verification-notice-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: #166534;
+  line-height: 1.4;
+}
+
+.verification-notice-icon {
+  flex-shrink: 0;
+  color: #16a34a;
+}
+
+.verification-notice-text {
+  font-weight: 500;
+}
+
+.verification-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.summary-card-icon.likely {
+  color: #2563eb;
+}
+
+.summary-card-icon.rejected {
+  color: #dc2626;
+}
+
+.verification-filter-bar {
+  margin-bottom: 0;
+}
+
+.table-action-btn {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary);
+  background-color: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.table-action-btn:hover {
+  background-color: var(--primary);
+  color: #ffffff;
+  border-color: var(--primary);
+}
+
+.table-action-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.confidence-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e40af;
+  background-color: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+
+.table-cell-muted {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.col-actions {
+  width: 90px;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.drawer-readonly-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: #f8fafc;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.detail-mono {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+
 
