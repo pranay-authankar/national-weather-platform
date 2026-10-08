@@ -5,11 +5,35 @@ into the PostgreSQL weather_events table.
 
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+import logging
 import psycopg
 
 from database import get_db_connection, sanitize_error_message
 from services.open_meteo import fetch_open_meteo_weather
 from services.weather_event_classifier import classify_open_meteo_observation
+
+logger = logging.getLogger(__name__)
+
+
+def weather_event_exists(source: str, source_record_id: str) -> bool:
+    """
+    Check if a weather event from the specified source and source_record_id already exists.
+    """
+    sql = """
+        SELECT 1
+        FROM public.weather_events
+        WHERE source = %(source)s AND source_record_id = %(source_record_id)s
+        LIMIT 1;
+    """
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, {"source": source, "source_record_id": source_record_id})
+                return cur.fetchone() is not None
+    except Exception as exc:
+        sanitized = sanitize_error_message(str(exc))
+        logger.warning("Error checking for existing weather event (%s, %s): %s", source, source_record_id, sanitized)
+        return False
 
 
 def normalize_open_meteo_record(
@@ -182,13 +206,23 @@ async def ingest_open_meteo_weather(
     longitude: float = 81.63,
     city: Optional[str] = "Raipur",
     state: Optional[str] = "Chhattisgarh",
+    skip_if_exists: bool = False,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     """
     Orchestrate fetching real weather data from Open-Meteo, normalizing the payload
     with deterministic classification, and persisting it into the weather_events table.
 
+    Parameters:
+        latitude: Target latitude coordinate.
+        longitude: Target longitude coordinate.
+        city: Administrative city name.
+        state: Administrative state name.
+        skip_if_exists: If True, avoids inserting duplicates when source_record_id exists.
+        dry_run: If True, performs real fetch and normalization without inserting into database.
+
     Returns:
-        Dict[str, Any]: Inserted weather event record details along with weather_code.
+        Dict[str, Any]: Ingestion result details.
     """
     # 1. Fetch live weather data from Open-Meteo
     raw_weather = await fetch_open_meteo_weather(latitude=latitude, longitude=longitude)
@@ -203,10 +237,43 @@ async def ingest_open_meteo_weather(
         state=state,
     )
 
-    # 3. Insert record into database using parameterized SQL
-    inserted_record = insert_weather_event(normalized_record)
+    # 3. Check for duplicates if requested
+    if skip_if_exists and weather_event_exists(normalized_record["source"], normalized_record["source_record_id"]):
+        logger.info(
+            "Weather event for %s (%s, %s) already exists. Skipping duplicate.",
+            normalized_record["source_record_id"],
+            city,
+            state,
+        )
+        return {
+            "status": "skipped",
+            "message": "Duplicate observation already exists in database.",
+            "source": normalized_record["source"],
+            "source_record_id": normalized_record["source_record_id"],
+            "event_type": normalized_record["event_type"],
+            "city": city,
+            "state": state,
+            "weather_code": current.get("weather_code"),
+            "is_duplicate": True,
+        }
 
-    # Include weather_code in metadata for API transparency
+    # 4. Handle dry_run mode without database insertion
+    if dry_run:
+        return {
+            "status": "dry_run",
+            "message": "Dry run successful. Record validated but not inserted.",
+            "source": normalized_record["source"],
+            "source_record_id": normalized_record["source_record_id"],
+            "event_type": normalized_record["event_type"],
+            "city": city,
+            "state": state,
+            "weather_code": current.get("weather_code"),
+            "normalized_record": normalized_record,
+        }
+
+    # 5. Insert record into database using parameterized SQL
+    inserted_record = insert_weather_event(normalized_record)
     inserted_record["weather_code"] = current.get("weather_code")
+    inserted_record["status"] = "inserted"
 
     return inserted_record

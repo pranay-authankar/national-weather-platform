@@ -2,6 +2,7 @@
 Main FastAPI application for National Weather Big Data Analytics Platform.
 """
 
+from contextlib import asynccontextmanager
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -23,6 +24,11 @@ from services.open_meteo import (
 from services.weather_event_service import (
     ingest_open_meteo_weather,
 )
+from services.scheduler_service import (
+    get_scheduler_status,
+    start_scheduler,
+    stop_scheduler,
+)
 from database import (
     check_database_connection,
     get_db_config,
@@ -32,9 +38,22 @@ from routers.events import router as events_router
 from routers.map import router as map_router
 from routers.reports import router as reports_router
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Start background weather ingestion scheduler
+    start_scheduler()
+    try:
+        yield
+    finally:
+        # Shutdown: Cleanly terminate scheduler
+        stop_scheduler()
+
+
 app = FastAPI(
     title="National Weather Big Data Analytics Platform API",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # CORS Configuration
@@ -65,6 +84,14 @@ def health_check() -> Dict[str, str]:
     Health check endpoint returning application status.
     """
     return {"status": "ok"}
+
+
+@app.get("/api/scheduler/status")
+def scheduler_status() -> Dict[str, Any]:
+    """
+    Retrieve operational health and status metadata for the Open-Meteo background ingestion scheduler.
+    """
+    return get_scheduler_status()
 
 
 @app.get("/api/database/health")
