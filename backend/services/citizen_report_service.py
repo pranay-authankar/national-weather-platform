@@ -15,6 +15,7 @@ from database import sanitize_error_message
 from schemas.reports import CitizenReportCreate
 from services.duplicate_detection_service import detect_duplicate_report
 from services.geocoding_service import reverse_geocode
+from services.verification_service import verify_weather_event
 from services.weather_event_classifier import normalize_event_type
 from services.weather_event_service import insert_weather_event
 
@@ -102,20 +103,25 @@ async def verify_citizen_report(
     event_record: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Modular extension point for evidence-based verification.
-
-    Future implementation will cross-reference ground reports with:
-    - IMD / Open-Meteo observational grids
-    - Radar / satellite precipitation estimates
-    - Social media and nearby citizen consensus
+    Evidence-based verification evaluating independent weather observations
+    and nearby ground reports.
 
     Returns:
         Dict[str, Any]: Contains verification_status and confidence_score.
     """
-    # Automated verification not yet enabled as per requirements
+    res = await verify_weather_event(
+        latitude=event_record.get("latitude"),
+        longitude=event_record.get("longitude"),
+        event_timestamp=event_record.get("event_timestamp"),
+        event_type=event_record.get("event_type"),
+        source=event_record.get("source", "Citizen_Report"),
+        current_status=event_record.get("verification_status", "Unverified"),
+        duplicate_of=event_record.get("duplicate_of"),
+        exclude_event_id=event_record.get("event_id"),
+    )
     return {
-        "verification_status": "Unverified",
-        "confidence_score": None,
+        "verification_status": res["verification_status"],
+        "confidence_score": res["confidence_score"],
     }
 
 
@@ -154,11 +160,31 @@ async def process_and_store_citizen_report(
         duplicate_of = dup_result.get("duplicate_of")
         confidence_score = dup_result.get("confidence_score")
     else:
-        verification_status = "Unverified"
         duplicate_of = None
-        confidence_score = None
+        # 3. Verification & confidence evaluation against independent evidence
+        try:
+            verif_res = await verify_weather_event(
+                latitude=report.latitude,
+                longitude=report.longitude,
+                event_timestamp=report.timestamp,
+                event_type=report.event_type,
+                source="Citizen_Report",
+                current_status="Unverified",
+            )
+            verification_status = verif_res["verification_status"]
+            confidence_score = verif_res["confidence_score"]
+        except Exception as exc:
+            sanitized_msg = sanitize_error_message(str(exc))
+            logger.warning(
+                "Verification evaluation failed for report (%s, %s): %s. Storing as Unverified.",
+                report.latitude,
+                report.longitude,
+                sanitized_msg,
+            )
+            verification_status = "Unverified"
+            confidence_score = None
 
-    # 3. Normalize report with geocoded divisions and duplicate detection outcome
+    # 4. Normalize report with geocoded divisions and verification outcome
     record = normalize_citizen_report(
         report=report,
         city=geocoded.get("city"),
@@ -168,10 +194,6 @@ async def process_and_store_citizen_report(
         duplicate_of=duplicate_of,
         confidence_score=confidence_score,
     )
-
-    # 4. Verification hook (deferred to next milestone)
-    # verification_result = await verify_citizen_report(record)
-    # record.update(verification_result)
 
     # 5. Insert into database
     try:

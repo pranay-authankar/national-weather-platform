@@ -23,7 +23,8 @@ router = APIRouter(prefix="/api/reports", tags=["Citizen Reports"])
     description=(
         "Allows citizens to submit ground-level weather observations. "
         "Validates coordinates and required fields, reverse-geocodes administrative location "
-        "(city, district, state), evaluates spatio-temporal duplicates, and stores the report safely in PostgreSQL."
+        "(city, district, state), evaluates spatio-temporal duplicates, deterministically calculates "
+        "evidence-based verification and confidence scoring, and stores the report safely in PostgreSQL."
     ),
 )
 async def submit_citizen_report(report: CitizenReportCreate) -> CitizenReportResponse:
@@ -33,6 +34,7 @@ async def submit_citizen_report(report: CitizenReportCreate) -> CitizenReportRes
     - Validates event_type and description are non-empty strings.
     - Reverse geocodes coordinates to automatically determine city, district, and state.
     - Evaluates geographic and temporal duplicate criteria against existing events.
+    - Evaluates independent supporting evidence to assign verification_status and confidence_score.
     - Persists report to public.weather_events with source='Citizen_Report'.
     - Returns event_id and status='received'.
     """
