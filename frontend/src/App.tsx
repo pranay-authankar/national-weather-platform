@@ -3,6 +3,7 @@ import AppShell from './components/layout/AppShell';
 import type { NavigationTab } from './components/layout/Sidebar';
 import DashboardPage from './pages/DashboardPage';
 import MapPage from './pages/MapPage';
+import AnalyticsPage from './pages/AnalyticsPage';
 import './App.css';
 
 function App() {
@@ -14,19 +15,7 @@ function App() {
 
       {activeTab === 'map' && <MapPage />}
 
-      {activeTab === 'analytics' && (
-        <div className="module-placeholder">
-          <div className="page-header">
-            <h2 className="page-title">Weather Big Data Analytics</h2>
-            <p className="page-subtitle">
-              Aggregated disaster frequency, state breakdown, and data source intelligence.
-            </p>
-          </div>
-          <div className="placeholder-box">
-            <p className="placeholder-text">Analytics charts scheduled for upcoming module task.</p>
-          </div>
-        </div>
-      )}
+      {activeTab === 'analytics' && <AnalyticsPage />}
 
       {activeTab === 'reports' && (
         <div className="module-placeholder">
