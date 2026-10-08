@@ -1025,11 +1025,15 @@
   margin-bottom: 0;
 }
 
+.map-filter-bar {
+  margin-bottom: 0;
+}
+
 .map-container-wrapper {
   position: relative;
   width: 100%;
-  height: calc(100vh - 210px);
-  min-height: 540px;
+  height: calc(100vh - 275px);
+  min-height: 480px;
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid var(--border-subtle);

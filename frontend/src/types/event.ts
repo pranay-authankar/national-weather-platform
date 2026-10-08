@@ -94,3 +94,15 @@ export interface EventFilters {
   page?: number;
   page_size?: number;
 }
+
+export interface MapFilters {
+  state?: string;
+  district?: string;
+  city?: string;
+  event_type?: string;
+  source?: string;
+  verification_status?: string;
+  start_time?: string;
+  end_time?: string;
+  limit?: number;
+}
