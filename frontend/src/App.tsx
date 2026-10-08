@@ -2,6 +2,7 @@ import { useState } from 'react';
 import AppShell from './components/layout/AppShell';
 import type { NavigationTab } from './components/layout/Sidebar';
 import DashboardPage from './pages/DashboardPage';
+import MapPage from './pages/MapPage';
 import './App.css';
 
 function App() {
@@ -11,19 +12,7 @@ function App() {
     <AppShell activeTab={activeTab} onSelectTab={setActiveTab}>
       {activeTab === 'dashboard' && <DashboardPage />}
 
-      {activeTab === 'map' && (
-        <div className="module-placeholder">
-          <div className="page-header">
-            <h2 className="page-title">Live Weather & Disaster Map</h2>
-            <p className="page-subtitle">
-              Geographical distribution of weather events across India with coordinate-level tracking.
-            </p>
-          </div>
-          <div className="placeholder-box">
-            <p className="placeholder-text">Live map integration scheduled for upcoming module task.</p>
-          </div>
-        </div>
-      )}
+      {activeTab === 'map' && <MapPage />}
 
       {activeTab === 'analytics' && (
         <div className="module-placeholder">
