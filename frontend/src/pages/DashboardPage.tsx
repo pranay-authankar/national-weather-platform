@@ -236,6 +236,16 @@ export const DashboardPage: FC = () => {
     };
   }, [selectedEventId, handleCloseDetail]);
 
+  const isFiltered = Boolean(
+    appliedFilters.state ||
+    appliedFilters.district ||
+    appliedFilters.event_type ||
+    appliedFilters.verification_status ||
+    appliedFilters.source ||
+    appliedFilters.start_time ||
+    appliedFilters.end_time
+  );
+
   return (
     <div className="dashboard-page">
       <div className="page-header">
@@ -379,7 +389,11 @@ export const DashboardPage: FC = () => {
 
         {!loading && !error && events.length === 0 && (
           <div className="dashboard-state-box empty">
-            <span className="dashboard-state-text">No weather events recorded.</span>
+            <span className="dashboard-state-text">
+              {isFiltered
+                ? 'No weather events match the selected filters.'
+                : 'No weather events recorded.'}
+            </span>
           </div>
         )}
 
@@ -531,6 +545,10 @@ export const DashboardPage: FC = () => {
                     <h4 className="detail-label">Event Information</h4>
                     <dl className="detail-grid">
                       <div className="detail-item">
+                        <dt>Event ID</dt>
+                        <dd className="detail-mono">{selectedEvent.event_id}</dd>
+                      </div>
+                      <div className="detail-item">
                         <dt>Location</dt>
                         <dd>{formatDetailLocation(selectedEvent)}</dd>
                       </div>
@@ -542,6 +560,12 @@ export const DashboardPage: FC = () => {
                         <dt>Data Source</dt>
                         <dd>{selectedEvent.source}</dd>
                       </div>
+                      {selectedEvent.duplicate_of && (
+                        <div className="detail-item">
+                          <dt>Duplicate Of</dt>
+                          <dd className="detail-mono">{selectedEvent.duplicate_of}</dd>
+                        </div>
+                      )}
                       {selectedEvent.latitude !== null &&
                         selectedEvent.longitude !== null && (
                           <div className="detail-item">
