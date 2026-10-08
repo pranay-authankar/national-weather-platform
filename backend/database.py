@@ -53,6 +53,23 @@ def get_db_connection() -> psycopg.Connection:
     )
 
 
+def sanitize_error_message(message: str) -> str:
+    """
+    Sanitize error message to ensure database passwords and sensitive credentials
+    are never leaked in exception messages or API responses.
+    """
+    if not message:
+        return ""
+    try:
+        config = get_db_config()
+        password = config.get("password")
+        if password and password in message:
+            message = message.replace(password, "******")
+    except Exception:
+        pass
+    return message
+
+
 def check_database_connection() -> bool:
     """
     Test the PostgreSQL connection by executing a lightweight 'SELECT 1' query.
@@ -88,13 +105,9 @@ def check_database_connection() -> bool:
                 return bool(result and result[0] == 1)
 
     except psycopg.Error as exc:
-        # Sanitize exception message to ensure secrets are never leaked
-        sanitized_error = str(exc)
-        if password and password in sanitized_error:
-            sanitized_error = sanitized_error.replace(password, "******")
+        sanitized_error = sanitize_error_message(str(exc))
         raise RuntimeError(f"Database connection failed: {sanitized_error}") from None
     except Exception as exc:
-        sanitized_error = str(exc)
-        if password and password in sanitized_error:
-            sanitized_error = sanitized_error.replace(password, "******")
+        sanitized_error = sanitize_error_message(str(exc))
         raise RuntimeError(f"Database error: {sanitized_error}") from None
+

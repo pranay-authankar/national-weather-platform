@@ -2,8 +2,15 @@
 Main FastAPI application for National Weather Big Data Analytics Platform.
 """
 
+import sys
+from pathlib import Path
 from typing import Any, Dict
 from fastapi import FastAPI, HTTPException, Query, status
+
+# Ensure backend root directory is in sys.path
+backend_dir = Path(__file__).resolve().parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from services.open_meteo import (
     fetch_open_meteo_weather,
@@ -19,11 +26,16 @@ from database import (
     check_database_connection,
     get_db_config,
 )
+from routers.reports import router as reports_router
 
 app = FastAPI(
     title="National Weather Big Data Analytics Platform API",
     version="0.1.0",
 )
+
+# Register routers
+app.include_router(reports_router)
+
 
 
 @app.get("/api/health")

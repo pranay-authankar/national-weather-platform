@@ -173,3 +173,17 @@ def classify_open_meteo_observation(current: Dict[str, Any]) -> str:
         humidity=current.get("relative_humidity_2m"),
         pressure=current.get("pressure_msl"),
     )
+
+
+def normalize_event_type(raw_event_type: str) -> str:
+    """
+    Normalize event type against ALLOWED_EVENT_TYPES.
+    Matches case-insensitively and maps to the official canonical title.
+    If no standard match is found, preserves the stripped event type.
+    """
+    trimmed = raw_event_type.strip()
+    for allowed in ALLOWED_EVENT_TYPES:
+        if trimmed.lower() == allowed.lower():
+            return allowed
+    return trimmed
+

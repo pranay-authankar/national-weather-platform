@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 import psycopg
 
-from database import get_db_connection
+from database import get_db_connection, sanitize_error_message
 from services.open_meteo import fetch_open_meteo_weather
 from services.weather_event_classifier import classify_open_meteo_observation
 
@@ -170,9 +170,11 @@ def insert_weather_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
         return formatted_event
 
     except psycopg.Error as exc:
-        raise RuntimeError(f"Database insertion error: {exc}") from None
+        sanitized = sanitize_error_message(str(exc))
+        raise RuntimeError(f"Database insertion error: {sanitized}") from None
     except Exception as exc:
-        raise RuntimeError(f"Unexpected database error: {exc}") from None
+        sanitized = sanitize_error_message(str(exc))
+        raise RuntimeError(f"Unexpected database error: {sanitized}") from None
 
 
 async def ingest_open_meteo_weather(
