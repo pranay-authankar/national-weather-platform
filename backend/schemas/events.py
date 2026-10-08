@@ -39,6 +39,14 @@ VALID_VERIFICATION_STATUSES: Set[str] = {
     "Duplicate",
 }
 
+VALID_CREDIBILITY_STATUSES: Set[str] = {
+    "Verified",
+    "Likely",
+    "Unverified",
+    "Suspicious",
+}
+
+
 
 class WeatherEventResponse(BaseModel):
     """
@@ -67,6 +75,11 @@ class WeatherEventResponse(BaseModel):
     confidence_score: Optional[float] = Field(default=None, description="System confidence score between 0.0 and 100.0.")
     duplicate_of: Optional[str] = Field(default=None, description="UUID of original event if this is a duplicate.")
     created_at: datetime = Field(..., description="ISO-8601 timestamp when record was persisted.")
+    credibility_score: Optional[float] = Field(default=None, description="Report credibility score between 0.0 and 100.0.")
+    credibility_status: Optional[str] = Field(default=None, description="Credibility evaluation: Verified, Likely, Unverified, Suspicious.")
+    credibility_reasons: Optional[List[str]] = Field(default=None, description="Concise machine-readable signals and reasons.")
+    source_trust_score: Optional[float] = Field(default=None, description="Source trust score between 0.0 and 100.0.")
+
 
 
 class PaginationMetadata(BaseModel):

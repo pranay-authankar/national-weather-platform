@@ -15,9 +15,11 @@ from database import sanitize_error_message
 from schemas.reports import CitizenReportCreate
 from services.duplicate_detection_service import detect_duplicate_report
 from services.geocoding_service import reverse_geocode
+from services.report_credibility_service import evaluate_and_score_citizen_report
 from services.verification_service import verify_weather_event
 from services.weather_event_classifier import normalize_event_type
 from services.weather_event_service import insert_weather_event
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,10 @@ def normalize_citizen_report(
     verification_status: str = "Unverified",
     duplicate_of: Optional[str] = None,
     confidence_score: Optional[float] = None,
+    credibility_score: Optional[float] = None,
+    credibility_status: Optional[str] = None,
+    credibility_reasons: Optional[list] = None,
+    source_trust_score: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Normalize incoming citizen report payload into the standard weather_events row structure.
@@ -52,6 +58,7 @@ def normalize_citizen_report(
     - city, district, state are populated from reverse geocoding if provided, else None.
     - meteorological measurements are NEVER invented (kept as None).
     - duplicate_of is set to matching event ID if duplicate, else None.
+    - credibility_score, credibility_status, credibility_reasons, source_trust_score populated.
     """
     source_record_id = generate_citizen_source_record_id()
     canonical_event_type = normalize_event_type(report.event_type)
@@ -80,7 +87,12 @@ def normalize_citizen_report(
         "verification_status": verification_status,
         "confidence_score": confidence_score,
         "duplicate_of": duplicate_of,
+        "credibility_score": credibility_score,
+        "credibility_status": credibility_status,
+        "credibility_reasons": credibility_reasons,
+        "source_trust_score": source_trust_score,
     }
+
 
 
 async def check_duplicate_report(
@@ -184,7 +196,35 @@ async def process_and_store_citizen_report(
             verification_status = "Unverified"
             confidence_score = None
 
-    # 4. Normalize report with geocoded divisions and verification outcome
+    # 4. Credibility scoring & source trust evaluation
+    try:
+        cred_res = await evaluate_and_score_citizen_report(
+            latitude=report.latitude,
+            longitude=report.longitude,
+            event_timestamp=report.timestamp,
+            event_type=report.event_type,
+            description=report.description,
+            is_duplicate=(verification_status == "Duplicate"),
+            duplicate_of=duplicate_of,
+        )
+        credibility_score = cred_res["credibility_score"]
+        credibility_status = cred_res["credibility_status"]
+        credibility_reasons = cred_res["credibility_reasons"]
+        source_trust_score = cred_res["source_trust_score"]
+    except Exception as exc:
+        sanitized_msg = sanitize_error_message(str(exc))
+        logger.warning(
+            "Credibility evaluation failed for report (%s, %s): %s. Storing default values.",
+            report.latitude,
+            report.longitude,
+            sanitized_msg,
+        )
+        credibility_score = None
+        credibility_status = "Unverified"
+        credibility_reasons = []
+        source_trust_score = 50.0
+
+    # 5. Normalize report with geocoded divisions, verification, and credibility outcome
     record = normalize_citizen_report(
         report=report,
         city=geocoded.get("city"),
@@ -193,9 +233,13 @@ async def process_and_store_citizen_report(
         verification_status=verification_status,
         duplicate_of=duplicate_of,
         confidence_score=confidence_score,
+        credibility_score=credibility_score,
+        credibility_status=credibility_status,
+        credibility_reasons=credibility_reasons,
+        source_trust_score=source_trust_score,
     )
 
-    # 5. Insert into database
+    # 6. Insert into database
     try:
         inserted = insert_weather_event(record)
         return {
@@ -207,6 +251,10 @@ async def process_and_store_citizen_report(
             "city": inserted.get("city"),
             "district": inserted.get("district"),
             "state": inserted.get("state"),
+            "credibility_score": inserted.get("credibility_score"),
+            "credibility_status": inserted.get("credibility_status"),
+            "credibility_reasons": inserted.get("credibility_reasons"),
+            "source_trust_score": inserted.get("source_trust_score"),
         }
     except Exception as exc:
         sanitized_msg = sanitize_error_message(str(exc))

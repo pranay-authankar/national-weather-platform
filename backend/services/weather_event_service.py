@@ -99,6 +99,10 @@ def normalize_open_meteo_record(
         "verification_status": "Unverified",
         "confidence_score": None,
         "duplicate_of": None,
+        "credibility_score": 90.0,
+        "credibility_status": "Verified",
+        "credibility_reasons": ["OFFICIAL_SOURCE"],
+        "source_trust_score": 90.0,
     }
 
 
@@ -116,6 +120,14 @@ def insert_weather_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
     Raises:
         RuntimeError: If database connection or insertion fails.
     """
+    payload = {
+        "credibility_score": None,
+        "credibility_status": None,
+        "credibility_reasons": None,
+        "source_trust_score": None,
+        **event_data,
+    }
+
     insert_sql = """
         INSERT INTO weather_events (
             source,
@@ -140,7 +152,11 @@ def insert_weather_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
             source_url,
             verification_status,
             confidence_score,
-            duplicate_of
+            duplicate_of,
+            credibility_score,
+            credibility_status,
+            credibility_reasons,
+            source_trust_score
         ) VALUES (
             %(source)s,
             %(source_record_id)s,
@@ -164,7 +180,11 @@ def insert_weather_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
             %(source_url)s,
             %(verification_status)s,
             %(confidence_score)s,
-            %(duplicate_of)s
+            %(duplicate_of)s,
+            %(credibility_score)s,
+            %(credibility_status)s,
+            %(credibility_reasons)s,
+            %(source_trust_score)s
         )
         RETURNING event_id, created_at;
     """
@@ -172,7 +192,8 @@ def insert_weather_event(event_data: Dict[str, Any]) -> Dict[str, Any]:
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(insert_sql, event_data)
+                cur.execute(insert_sql, payload)
+
                 row = cur.fetchone()
                 if not row:
                     raise RuntimeError("Failed to retrieve generated event_id from inserted record.")

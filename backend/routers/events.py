@@ -15,6 +15,7 @@ import psycopg
 
 from database import get_db_connection, sanitize_error_message
 from schemas.events import (
+    VALID_CREDIBILITY_STATUSES,
     VALID_EVENT_TYPES,
     VALID_SOURCES,
     VALID_VERIFICATION_STATUSES,
@@ -51,8 +52,13 @@ EVENT_COLUMNS = """
     verification_status,
     confidence_score,
     duplicate_of,
-    created_at
+    created_at,
+    credibility_score,
+    credibility_status,
+    credibility_reasons,
+    source_trust_score
 """
+
 
 
 def map_row_to_event(row: tuple) -> WeatherEventResponse:
@@ -83,6 +89,10 @@ def map_row_to_event(row: tuple) -> WeatherEventResponse:
         confidence_score=float(row[20]) if row[20] is not None else None,
         duplicate_of=str(row[21]) if row[21] is not None else None,
         created_at=row[22],
+        credibility_score=float(row[23]) if row[23] is not None else None,
+        credibility_status=str(row[24]) if row[24] is not None else None,
+        credibility_reasons=list(row[25]) if row[25] is not None else None,
+        source_trust_score=float(row[26]) if row[26] is not None else None,
     )
 
 
@@ -93,7 +103,7 @@ def map_row_to_event(row: tuple) -> WeatherEventResponse:
     summary="List Weather Events",
     description=(
         "Retrieve paginated weather events collected from real data sources (Open-Meteo, Citizen Reports, etc.). "
-        "Supports filtering by event_type, source, verification_status, state, district, city, "
+        "Supports filtering by event_type, source, verification_status, credibility_status, state, district, city, "
         "and observation time windows. Orders results newest first."
     ),
 )
@@ -101,12 +111,14 @@ async def list_weather_events(
     event_type: Optional[str] = Query(None, description="Exact match on weather event type"),
     source: Optional[str] = Query(None, description="Exact match on data source"),
     verification_status: Optional[str] = Query(None, description="Exact match on verification status"),
+    credibility_status: Optional[str] = Query(None, description="Exact match on credibility status"),
     state: Optional[str] = Query(None, description="Case-insensitive match on state name"),
     district: Optional[str] = Query(None, description="Case-insensitive match on district name"),
     city: Optional[str] = Query(None, description="Case-insensitive match on city name"),
     start_time: Optional[datetime] = Query(None, description="Inclusive start boundary for event_timestamp (ISO-8601)"),
     end_time: Optional[datetime] = Query(None, description="Inclusive end boundary for event_timestamp (ISO-8601)"),
     page: int = Query(default=1, ge=1, description="Page number (1-indexed, minimum 1)"),
+
     page_size: int = Query(default=50, ge=1, le=100, description="Records per page (minimum 1, maximum 100)"),
 ) -> PaginatedEventsResponse:
     """
@@ -140,6 +152,15 @@ async def list_weather_events(
             )
         verification_status = trimmed_status
 
+    if credibility_status is not None:
+        trimmed_cred = credibility_status.strip()
+        if trimmed_cred not in VALID_CREDIBILITY_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid credibility_status '{credibility_status}'. Allowed values: {', '.join(sorted(VALID_CREDIBILITY_STATUSES))}",
+            )
+        credibility_status = trimmed_cred
+
     # 2. Validate time range boundaries
     if start_time is not None and end_time is not None:
         # Normalize naive timestamps to UTC for safe comparison
@@ -166,6 +187,11 @@ async def list_weather_events(
     if verification_status is not None:
         where_clauses.append("verification_status = %(verification_status)s")
         params["verification_status"] = verification_status
+
+    if credibility_status is not None:
+        where_clauses.append("credibility_status = %(credibility_status)s")
+        params["credibility_status"] = credibility_status
+
 
     if state is not None and state.strip():
         where_clauses.append("LOWER(state) = LOWER(%(state)s)")
