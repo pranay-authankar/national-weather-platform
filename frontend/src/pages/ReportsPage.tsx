@@ -9,6 +9,7 @@ import {
 import { submitCitizenReport } from '../services/reportsApi';
 import type { CitizenReportPayload } from '../types/report';
 import { EVENT_TYPES } from '../utils/constants';
+import { VoiceInput } from '../components/VoiceInput';
 
 function isValidUrl(urlString: string): boolean {
   try {
@@ -212,9 +213,23 @@ export const ReportsPage: FC = () => {
 
           {/* Description */}
           <div className="form-group">
-            <label htmlFor="report-description" className="form-label">
-              Description <span className="required-star">*</span>
-            </label>
+            <div className="form-label-row">
+              <label htmlFor="report-description" className="form-label">
+                Description <span className="required-star">*</span>
+              </label>
+              <VoiceInput
+                onTranscript={(transcript) => {
+                  setDescription((prev) => {
+                    const trimmed = prev.trim();
+                    return trimmed ? `${trimmed} ${transcript}` : transcript;
+                  });
+                  if (validationErrors.description) {
+                    setValidationErrors((prev) => ({ ...prev, description: '' }));
+                  }
+                }}
+                disabled={submitting}
+              />
+            </div>
             <textarea
               id="report-description"
               name="description"
