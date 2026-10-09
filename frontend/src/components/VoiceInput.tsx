@@ -43,6 +43,32 @@ const checkBrowserSupport = (): boolean => {
   );
 };
 
+const CANDIDATE_MIME_TYPES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg;codecs=opus',
+  'audio/ogg',
+  'audio/aac',
+  'audio/wav',
+];
+
+function pickSupportedMimeType(): string {
+  if (typeof window === 'undefined' || typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return '';
+  }
+  for (const candidate of CANDIDATE_MIME_TYPES) {
+    try {
+      if (MediaRecorder.isTypeSupported(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // Continue checking next candidate
+    }
+  }
+  return '';
+}
+
 export const VoiceInput: FC<VoiceInputProps> = ({ onTranscript, disabled = false }) => {
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
@@ -97,17 +123,11 @@ export const VoiceInput: FC<VoiceInputProps> = ({ onTranscript, disabled = false
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // Determine supported MIME type
-      let mimeType = 'audio/webm';
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus';
-      } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
-        mimeType = 'audio/ogg;codecs=opus';
-      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-        mimeType = 'audio/mp4';
-      }
-
-      const recorder = new MediaRecorder(stream, { mimeType });
+      // Determine supported MIME type across various browsers (Chrome, Firefox, Safari, Edge)
+      const preferredMime = pickSupportedMimeType();
+      const recorder = preferredMime
+        ? new MediaRecorder(stream, { mimeType: preferredMime })
+        : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event) => {
@@ -129,7 +149,9 @@ export const VoiceInput: FC<VoiceInputProps> = ({ onTranscript, disabled = false
           return;
         }
 
-        const audioBlob = new Blob(chunks, { type: mimeType });
+        // Preserve actual MediaRecorder MIME type reported by the browser instance
+        const actualMimeType = recorder.mimeType || preferredMime || 'audio/webm';
+        const audioBlob = new Blob(chunks, { type: actualMimeType });
         if (audioBlob.size === 0) {
           setIsRecording(false);
           setErrorMessage('No audio captured. Please try speaking into your microphone.');

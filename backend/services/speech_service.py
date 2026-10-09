@@ -7,6 +7,7 @@ Never leaks API keys or secrets in logs or responses.
 import logging
 import os
 from pathlib import Path
+import re
 from typing import Any, Dict, Optional, Set
 from dotenv import load_dotenv
 from fastapi import HTTPException, UploadFile, status
@@ -17,6 +18,34 @@ logger = logging.getLogger(__name__)
 # Ensure backend/.env is loaded without overriding environment variables
 env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path, override=False)
+
+
+def sanitize_upstream_error_detail(detail_raw: Any, api_key: str) -> str:
+    """
+    Sanitize error message from upstream ElevenLabs response.
+    Never exposes API keys or raw credentials.
+    """
+    if isinstance(detail_raw, dict):
+        msg = detail_raw.get("message") or detail_raw.get("msg") or str(detail_raw)
+    elif isinstance(detail_raw, list):
+        parts = []
+        for item in detail_raw:
+            if isinstance(item, dict):
+                parts.append(item.get("msg") or item.get("message") or str(item))
+            else:
+                parts.append(str(item))
+        msg = "; ".join(parts)
+    elif isinstance(detail_raw, str):
+        msg = detail_raw
+    else:
+        msg = str(detail_raw) if detail_raw is not None else ""
+
+    if api_key and api_key in msg:
+        msg = msg.replace(api_key, "[REDACTED_API_KEY]")
+
+    # Redact any other potential sk_ keys or auth tokens
+    msg = re.sub(r"sk_[a-zA-Z0-9_\-]+", "[REDACTED_KEY]", msg)
+    return msg.strip()
 
 # ElevenLabs STT Constants & Defaults
 DEFAULT_ELEVENLABS_API_URL: str = "https://api.elevenlabs.io/v1/speech-to-text"
@@ -176,7 +205,21 @@ async def transcribe_audio_file(
 
     # 4. Prepare multipart payload for ElevenLabs STT API
     # Clean normalized content type for upload header
-    upload_mime = content_type.split(";")[0].strip() or "audio/webm"
+    upload_mime = content_type.split(";")[0].strip().lower() if content_type else "audio/webm"
+    if not upload_mime or upload_mime in ("application/octet-stream", "binary/octet-stream"):
+        ext = Path(filename).suffix.lower()
+        ext_to_mime = {
+            ".webm": "audio/webm",
+            ".ogg": "audio/ogg",
+            ".wav": "audio/wav",
+            ".mp3": "audio/mpeg",
+            ".mp4": "audio/mp4",
+            ".m4a": "audio/mp4",
+            ".aac": "audio/aac",
+            ".flac": "audio/flac",
+        }
+        upload_mime = ext_to_mime.get(ext, "audio/webm")
+
     files = {
         "file": (filename, content, upload_mime),
     }
@@ -210,32 +253,79 @@ async def transcribe_audio_file(
                 "language_code": detected_language,
             }
 
-        # Handle specific ElevenLabs error status codes
-        if response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN):
+        # Extract and sanitize upstream error details without exposing secrets
+        raw_detail: Any = None
+        error_type = ""
+        error_code = ""
+        try:
+            error_json = response.json()
+            if isinstance(error_json, dict):
+                raw_detail = error_json.get("detail", error_json.get("message", error_json))
+                if isinstance(raw_detail, dict):
+                    error_type = str(raw_detail.get("type", ""))
+                    error_code = str(raw_detail.get("code", ""))
+        except Exception:
+            raw_detail = response.text
+
+        sanitized_detail = sanitize_upstream_error_detail(raw_detail, api_key)
+
+        # Safe diagnostic logging: HTTP status and sanitized details only; never API keys or raw audio
+        logger.warning(
+            "ElevenLabs STT upstream HTTP %d: %s (type=%s, code=%s)",
+            response.status_code,
+            sanitized_detail,
+            error_type,
+            error_code,
+        )
+
+        # 1. Handle authentication failures (can be HTTP 401/403 OR HTTP 400 with authentication_error / invalid_api_key)
+        is_auth_error = (
+            response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+            or error_type == "authentication_error"
+            or error_code in ("invalid_api_key", "unauthorized")
+            or "api key" in sanitized_detail.lower()
+        )
+        if is_auth_error:
             logger.error("ElevenLabs STT upstream authentication failed (HTTP %d).", response.status_code)
+            auth_msg = (
+                f"Speech-to-text upstream authentication failed: {sanitized_detail}"
+                if sanitized_detail
+                else "Speech-to-text upstream authentication failed. Please verify API key configuration."
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Speech-to-text upstream authentication failed. Please verify API key configuration.",
+                detail=auth_msg,
             )
 
+        # 2. Rate limit exceeded
         if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
-            logger.warning("ElevenLabs STT rate limit exceeded.")
+            rate_msg = (
+                f"Speech-to-text rate limit exceeded: {sanitized_detail}"
+                if sanitized_detail
+                else "Speech-to-text rate limit exceeded. Please try again shortly."
+            )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Speech-to-text rate limit exceeded. Please try again shortly.",
+                detail=rate_msg,
             )
 
-        if response.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_422_UNPROCESSABLE_ENTITY):
-            logger.warning("ElevenLabs STT rejected audio input (HTTP %d).", response.status_code)
+        # 3. Bad request or unprocessable entity (e.g., parameter or audio validation error)
+        status_422 = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422)
+        if response.status_code in (status.HTTP_400_BAD_REQUEST, status_422, 422):
+            param_msg = (
+                f"Speech-to-text error: {sanitized_detail}"
+                if sanitized_detail
+                else "Audio could not be processed by the speech-to-text service. Please check the recording and try again."
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Audio could not be processed by the speech-to-text service. Please check the recording and try again.",
+                detail=param_msg,
             )
 
-        logger.error("ElevenLabs STT returned unexpected HTTP %d.", response.status_code)
+        # 4. Upstream 5xx or unexpected error
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Speech-to-text service returned an unexpected upstream error.",
+            detail=f"Speech-to-text service returned an upstream error: {sanitized_detail or 'Service unavailable'}",
         )
 
     except HTTPException:

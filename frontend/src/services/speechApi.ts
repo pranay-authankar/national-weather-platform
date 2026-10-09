@@ -64,12 +64,21 @@ export async function transcribeAudio(
 
   // Determine appropriate filename based on container MIME type
   let filename = 'recording.webm';
-  if (audioBlob.type.includes('mp4')) {
+  const normType = audioBlob.type.toLowerCase();
+  if (normType.includes('mp4') || normType.includes('m4a')) {
     filename = 'recording.mp4';
-  } else if (audioBlob.type.includes('ogg')) {
+  } else if (normType.includes('ogg')) {
     filename = 'recording.ogg';
-  } else if (audioBlob.type.includes('wav')) {
+  } else if (normType.includes('wav')) {
     filename = 'recording.wav';
+  } else if (normType.includes('aac')) {
+    filename = 'recording.aac';
+  } else if (normType.includes('flac')) {
+    filename = 'recording.flac';
+  } else if (normType.includes('mpeg') || normType.includes('mp3')) {
+    filename = 'recording.mp3';
+  } else if (normType.includes('webm')) {
+    filename = 'recording.webm';
   }
 
   formData.append('file', audioBlob, filename);

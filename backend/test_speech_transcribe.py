@@ -246,6 +246,58 @@ async def run_all_speech_tests() -> bool:
                 results.append(("Test 9: Upstream 401 authentication error", "PASS", "Safe 502 returned, no key leak"))
 
         # -------------------------------------------------------------------
+        # Test 9B (Regression): Upstream ElevenLabs 400 with authentication_error
+        # (e.g., API key ID used instead of sk_ secret API key)
+        # -------------------------------------------------------------------
+        print("\n--- [Test 9B - Regression] Upstream ElevenLabs 400 with authentication_error ---")
+        mock_key_id_err = httpx.Response(
+            status_code=400,
+            json={
+                "detail": {
+                    "type": "authentication_error",
+                    "code": "invalid_api_key",
+                    "message": "API key ID used as API key - only valid API keys can be used. API keys start with 'sk_' and are shown when the key is created or rotated.",
+                    "status": "api_key_id_used_as_api_key",
+                }
+            },
+        )
+        mock_key_id_client = MockUpstreamClient(response=mock_key_id_err)
+        with patch.dict(os.environ, {"ELEVENLABS_API_KEY": "test_public_key_id_123"}):
+            with patch("services.speech_service.httpx.AsyncClient", return_value=mock_key_id_client):
+                sample_audio = b"\x1a\x45\xdf\xa3" + b"\x00" * 200
+                files = {"file": ("audio.webm", sample_audio, "audio/webm")}
+                res = await client.post("/api/speech/transcribe", files=files)
+
+                # Must return 502 (auth error) and NOT misreport as 400 audio failure
+                assert res.status_code == 502, f"Expected 502 for key ID auth error, got {res.status_code}: {res.text}"
+                data = res.json()
+                assert "API key ID used as API key" in data["detail"]
+                assert "test_public_key_id_123" not in res.text
+                print(f"  [PASS] Status {res.status_code}: Correctly classified HTTP 400 auth error: {data['detail']}")
+                results.append(("Test 9B: Upstream 400 auth error classification", "PASS", "Correctly identified as auth error (HTTP 502)"))
+
+        # -------------------------------------------------------------------
+        # Test 9C (Regression): Upstream ElevenLabs 400 with audio parameter error
+        # -------------------------------------------------------------------
+        print("\n--- [Test 9C - Regression] Upstream ElevenLabs 400 audio validation error ---")
+        mock_audio_len_err = httpx.Response(
+            status_code=400,
+            json={"detail": {"message": "Audio duration must be at least 100ms"}},
+        )
+        mock_audio_len_client = MockUpstreamClient(response=mock_audio_len_err)
+        with patch.dict(os.environ, {"ELEVENLABS_API_KEY": "valid_test_api_key"}):
+            with patch("services.speech_service.httpx.AsyncClient", return_value=mock_audio_len_client):
+                sample_audio = b"\x1a\x45\xdf\xa3" + b"\x00" * 200
+                files = {"file": ("audio.webm", sample_audio, "audio/webm")}
+                res = await client.post("/api/speech/transcribe", files=files)
+
+                assert res.status_code == 400, f"Expected 400 for audio parameter error, got {res.status_code}: {res.text}"
+                data = res.json()
+                assert "Audio duration must be at least 100ms" in data["detail"]
+                print(f"  [PASS] Status {res.status_code}: Upstream audio detail propagated safely: {data['detail']}")
+                results.append(("Test 9C: Upstream 400 audio error detail propagation", "PASS", data["detail"]))
+
+        # -------------------------------------------------------------------
         # Test 10: Upstream ElevenLabs 429 Rate Limit
         # -------------------------------------------------------------------
         print("\n--- [Test 10] Upstream ElevenLabs 429 Rate Limit ---")

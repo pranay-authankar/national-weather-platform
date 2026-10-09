@@ -116,6 +116,20 @@ try {
   assert.equal(capturedFormData.has('language_code'), false, "'auto' should not append language_code param");
   console.log('  [PASS] 2b: "auto" language code correctly omitted for automatic detection.');
 
+  // Test with audio/mp4 (e.g. Safari/iOS MediaRecorder output)
+  const mp4Blob = new Blob(['mock mp4 audio binary'], { type: 'audio/mp4' });
+  await transcribeAudio(mp4Blob, 'en');
+  const mp4File = capturedFormData.get('file');
+  assert.equal(mp4File.name, 'recording.mp4', 'audio/mp4 should be named recording.mp4');
+  console.log('  [PASS] 2c (Regression): audio/mp4 MIME type preserved with recording.mp4 filename.');
+
+  // Test with audio/aac
+  const aacBlob = new Blob(['mock aac audio binary'], { type: 'audio/aac' });
+  await transcribeAudio(aacBlob, 'en');
+  const aacFile = capturedFormData.get('file');
+  assert.equal(aacFile.name, 'recording.aac', 'audio/aac should be named recording.aac');
+  console.log('  [PASS] 2d (Regression): audio/aac MIME type preserved with recording.aac filename.');
+
 } finally {
   apiClient.post = originalPost;
 }
