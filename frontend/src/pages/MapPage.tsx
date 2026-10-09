@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, type FC } from 'react';
+import { useState, useEffect, useCallback, type FC, type FormEvent } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { AlertCircle, X, ExternalLink } from 'lucide-react';
 import { getMapEvents, getEventById } from '../services/eventsApi';
-import type { MapWeatherEvent, WeatherEvent } from '../types/event';
+import type { MapWeatherEvent, WeatherEvent, MapFilters } from '../types/event';
+import { EVENT_TYPES, DATA_SOURCES, VERIFICATION_STATUSES } from '../utils/constants';
 
 const INDIA_CENTER: [number, number] = [21.8, 78.9];
 const INDIA_BOUNDS: [[number, number], [number, number]] = [
@@ -96,15 +97,83 @@ function hasMeasurements(event: WeatherEvent): boolean {
   );
 }
 
+function toLocalDayStartIso(dateStr: string): string | undefined {
+  if (!dateStr) return undefined;
+  const d = new Date(`${dateStr}T00:00:00`);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+function toLocalDayEndIso(dateStr: string): string | undefined {
+  if (!dateStr) return undefined;
+  const d = new Date(`${dateStr}T23:59:59.999`);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
 export const MapPage: FC = () => {
   const [events, setEvents] = useState<MapWeatherEvent[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [selectedEventType, setSelectedEventType] = useState<string>('');
+  const [selectedSource, setSelectedSource] = useState<string>('');
+  const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [selectedState, setSelectedState] = useState<string>('');
+  const [selectedDistrict, setSelectedDistrict] = useState<string>('');
+  const [selectedCity, setSelectedCity] = useState<string>('');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+
+  const [knownStates, setKnownStates] = useState<string[]>([]);
+  const [knownDistricts, setKnownDistricts] = useState<string[]>([]);
+  const [knownCities, setKnownCities] = useState<string[]>([]);
+
+  const [isFiltered, setIsFiltered] = useState<boolean>(false);
+
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<WeatherEvent | null>(null);
   const [detailLoading, setDetailLoading] = useState<boolean>(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+
+  const processFetchedEvents = (fetchedEvents: MapWeatherEvent[]) => {
+    setEvents(fetchedEvents);
+    setLoading(false);
+
+    setKnownStates((prev) => {
+      const combined = new Set([
+        ...prev,
+        ...fetchedEvents.map((e) => e.state).filter((s): s is string => Boolean(s)),
+      ]);
+      return Array.from(combined).sort();
+    });
+    setKnownDistricts((prev) => {
+      const combined = new Set([
+        ...prev,
+        ...fetchedEvents.map((e) => e.district).filter((d): d is string => Boolean(d)),
+      ]);
+      return Array.from(combined).sort();
+    });
+    setKnownCities((prev) => {
+      const combined = new Set([
+        ...prev,
+        ...fetchedEvents.map((e) => e.city).filter((c): c is string => Boolean(c)),
+      ]);
+      return Array.from(combined).sort();
+    });
+  };
+
+  const fetchMapData = useCallback((filters?: MapFilters) => {
+    setLoading(true);
+    setError(null);
+
+    getMapEvents(filters)
+      .then((data) => {
+        processFetchedEvents(data?.data ?? []);
+      })
+      .catch(() => {
+        setError('Unable to load map data.');
+        setLoading(false);
+      });
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -112,8 +181,7 @@ export const MapPage: FC = () => {
     getMapEvents()
       .then((data) => {
         if (!isMounted) return;
-        setEvents(data?.data ?? []);
-        setLoading(false);
+        processFetchedEvents(data?.data ?? []);
       })
       .catch(() => {
         if (!isMounted) return;
@@ -125,6 +193,41 @@ export const MapPage: FC = () => {
       isMounted = false;
     };
   }, []);
+
+  const handleApplyFilters = (e: FormEvent) => {
+    e.preventDefault();
+
+    const filters: MapFilters = {};
+    if (selectedEventType) filters.event_type = selectedEventType;
+    if (selectedSource) filters.source = selectedSource;
+    if (selectedStatus) filters.verification_status = selectedStatus;
+    if (selectedState) filters.state = selectedState;
+    if (selectedDistrict) filters.district = selectedDistrict;
+    if (selectedCity) filters.city = selectedCity;
+    const startTime = toLocalDayStartIso(dateFrom);
+    if (startTime) filters.start_time = startTime;
+    const endTime = toLocalDayEndIso(dateTo);
+    if (endTime) filters.end_time = endTime;
+
+    const hasAnyFilter = Object.keys(filters).length > 0;
+    setIsFiltered(hasAnyFilter);
+
+    fetchMapData(filters);
+  };
+
+  const handleClearFilters = () => {
+    setSelectedEventType('');
+    setSelectedSource('');
+    setSelectedStatus('');
+    setSelectedState('');
+    setSelectedDistrict('');
+    setSelectedCity('');
+    setDateFrom('');
+    setDateTo('');
+    setIsFiltered(false);
+
+    fetchMapData();
+  };
 
   const handleSelectEvent = (eventId: string) => {
     setSelectedEventId(eventId);
@@ -193,6 +296,129 @@ export const MapPage: FC = () => {
         )}
       </div>
 
+      <form className="dashboard-filter-bar map-filter-bar" onSubmit={handleApplyFilters}>
+        <div className="filter-row filter-row-primary">
+          <span className="filter-label">Map Filters</span>
+
+          <select
+            className="filter-control filter-select"
+            aria-label="Filter by event type"
+            value={selectedEventType}
+            onChange={(e) => setSelectedEventType(e.target.value)}
+          >
+            <option value="">All Event Types</option>
+            {EVENT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="filter-control filter-select"
+            aria-label="Filter by data source"
+            value={selectedSource}
+            onChange={(e) => setSelectedSource(e.target.value)}
+          >
+            <option value="">All Sources</option>
+            {DATA_SOURCES.map((source) => (
+              <option key={source} value={source}>
+                {source}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="filter-control filter-select"
+            aria-label="Filter by verification status"
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+          >
+            <option value="">All Verification Statuses</option>
+            {VERIFICATION_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="filter-control filter-select"
+            aria-label="Filter by state"
+            value={selectedState}
+            onChange={(e) => setSelectedState(e.target.value)}
+          >
+            <option value="">All States</option>
+            {knownStates.map((st) => (
+              <option key={st} value={st}>
+                {st}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="filter-control filter-select"
+            aria-label="Filter by district"
+            value={selectedDistrict}
+            onChange={(e) => setSelectedDistrict(e.target.value)}
+          >
+            <option value="">All Districts</option>
+            {knownDistricts.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="filter-control filter-select"
+            aria-label="Filter by city"
+            value={selectedCity}
+            onChange={(e) => setSelectedCity(e.target.value)}
+          >
+            <option value="">All Cities</option>
+            {knownCities.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-row filter-row-secondary">
+          <div className="filter-date-inputs">
+            <input
+              type="date"
+              className="filter-control filter-date"
+              aria-label="Date from"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+            <span className="filter-date-sep" aria-hidden="true">to</span>
+            <input
+              type="date"
+              className="filter-control filter-date"
+              aria-label="Date to"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
+          </div>
+
+          <div className="filter-actions">
+            <button type="submit" className="filter-btn filter-btn-apply">
+              Apply Filters
+            </button>
+            <button
+              type="button"
+              className="filter-btn filter-btn-clear"
+              onClick={handleClearFilters}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      </form>
+
       {loading && (
         <div className="dashboard-state-box loading map-status-alert">
           <span className="dashboard-state-text">Loading weather events...</span>
@@ -208,7 +434,11 @@ export const MapPage: FC = () => {
 
       {!loading && !error && validEvents.length === 0 && (
         <div className="dashboard-state-box empty map-status-alert">
-          <span className="dashboard-state-text">No mapped weather events available.</span>
+          <span className="dashboard-state-text">
+            {isFiltered
+              ? 'No weather events match the selected filters.'
+              : 'No mapped weather events available.'}
+          </span>
         </div>
       )}
 
@@ -360,6 +590,10 @@ export const MapPage: FC = () => {
                     <h4 className="detail-label">Event Information</h4>
                     <dl className="detail-grid">
                       <div className="detail-item">
+                        <dt>Event ID</dt>
+                        <dd className="detail-mono">{selectedEvent.event_id}</dd>
+                      </div>
+                      <div className="detail-item">
                         <dt>Location</dt>
                         <dd>{formatDetailLocation(selectedEvent)}</dd>
                       </div>
@@ -371,6 +605,12 @@ export const MapPage: FC = () => {
                         <dt>Data Source</dt>
                         <dd>{selectedEvent.source}</dd>
                       </div>
+                      {selectedEvent.duplicate_of && (
+                        <div className="detail-item">
+                          <dt>Duplicate Of</dt>
+                          <dd className="detail-mono">{selectedEvent.duplicate_of}</dd>
+                        </div>
+                      )}
                       {selectedEvent.latitude !== null &&
                         selectedEvent.longitude !== null && (
                           <div className="detail-item">

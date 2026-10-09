@@ -49,6 +49,10 @@ export interface WeatherEvent {
   confidence_score: number | null;
   duplicate_of: string | null;
   created_at: string;
+  credibility_score?: number | null;
+  credibility_status?: string | null;
+  credibility_reasons?: string[] | null;
+  source_trust_score?: number | null;
 }
 
 export interface MapWeatherEvent {
@@ -93,4 +97,16 @@ export interface EventFilters {
   end_time?: string;
   page?: number;
   page_size?: number;
+}
+
+export interface MapFilters {
+  state?: string;
+  district?: string;
+  city?: string;
+  event_type?: string;
+  source?: string;
+  verification_status?: string;
+  start_time?: string;
+  end_time?: string;
+  limit?: number;
 }
