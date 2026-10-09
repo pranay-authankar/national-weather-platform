@@ -68,6 +68,9 @@ def sanitize_error_message(message: str) -> str:
         data_gov_key = os.getenv("DATA_GOV_API_KEY")
         if data_gov_key and data_gov_key in message:
             message = message.replace(data_gov_key, "******")
+        admin_key = os.getenv("ADMIN_API_KEY")
+        if admin_key and admin_key in message:
+            message = message.replace(admin_key, "******")
     except Exception:
         pass
     return message
