@@ -5,6 +5,7 @@ Reads connection parameters securely from environment variables.
 
 import os
 from pathlib import Path
+import re
 from typing import Dict, Any
 from dotenv import load_dotenv
 import psycopg
@@ -16,8 +17,9 @@ env_file_path = Path(__file__).resolve().parent / ".env"
 def get_db_config() -> Dict[str, Any]:
     """
     Load environment variables from backend/.env and return database configuration.
+    Uses override=False so process-level environment variables take precedence.
     """
-    load_dotenv(dotenv_path=env_file_path, override=True)
+    load_dotenv(dotenv_path=env_file_path, override=False)
     return {
         "host": os.getenv("DATABASE_HOST", "aws-0-ap-south-1.pooler.supabase.com"),
         "port": int(os.getenv("DATABASE_PORT", "5432")),
@@ -55,24 +57,38 @@ def get_db_connection() -> psycopg.Connection:
 
 def sanitize_error_message(message: str) -> str:
     """
-    Sanitize error message to ensure database passwords and sensitive credentials
-    are never leaked in exception messages or API responses.
+    Sanitize error message to ensure database passwords, credentials embedded in URIs,
+    and sensitive credentials/API keys are never leaked in exception messages or API responses.
     """
     if not message:
         return ""
+
+    # 1. Redact credentials embedded in connection URIs (e.g. postgresql://user:password@host:port/db)
+    # Handles user:password, :password, URI-encoded or punctuation-rich passwords before @
+    uri_pattern = re.compile(
+        r'(\b[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^:\s/@]*:)?)([^@\s/]+)(@(?=[a-zA-Z0-9_.-]+(?::\d+)?(?:[/?:#\s]|$)))'
+    )
+    message = uri_pattern.sub(r'\g<1>******\3', message)
+
+    # 2. Redact key-value DSN style credentials (e.g. password=... or pwd=...)
+    dsn_pattern = re.compile(r'(?i)\b(password|pwd)\s*=\s*(?:\'[^\']*\'|"[^"]*"|\S+)')
+    message = dsn_pattern.sub(r'\1=******', message)
+
+    # 3. Redact explicit configured secrets
     try:
         config = get_db_config()
         password = config.get("password")
-        if password and password in message:
-            message = message.replace(password, "******")
+        if password and len(str(password)) >= 3 and str(password) in message:
+            message = message.replace(str(password), "******")
         data_gov_key = os.getenv("DATA_GOV_API_KEY")
-        if data_gov_key and data_gov_key in message:
-            message = message.replace(data_gov_key, "******")
+        if data_gov_key and len(str(data_gov_key)) >= 3 and str(data_gov_key) in message:
+            message = message.replace(str(data_gov_key), "******")
         admin_key = os.getenv("ADMIN_API_KEY")
-        if admin_key and admin_key in message:
-            message = message.replace(admin_key, "******")
+        if admin_key and len(str(admin_key)) >= 3 and str(admin_key) in message:
+            message = message.replace(str(admin_key), "******")
     except Exception:
         pass
+
     return message
 
 
