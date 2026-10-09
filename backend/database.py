@@ -65,6 +65,9 @@ def sanitize_error_message(message: str) -> str:
         password = config.get("password")
         if password and password in message:
             message = message.replace(password, "******")
+        data_gov_key = os.getenv("DATA_GOV_API_KEY")
+        if data_gov_key and data_gov_key in message:
+            message = message.replace(data_gov_key, "******")
     except Exception:
         pass
     return message
