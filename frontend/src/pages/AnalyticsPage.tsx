@@ -10,9 +10,41 @@ import {
   PieChart,
   Pie,
   Cell,
+  LineChart,
+  Line,
+  CartesianGrid,
 } from 'recharts';
 import { getAnalyticsSummary } from '../services/analyticsApi';
 import type { AnalyticsSummary } from '../types/analytics';
+
+function formatDateLabel(dateStr: string): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(`${dateStr}T00:00:00`);
+    if (isNaN(d.getTime())) return dateStr;
+    return new Intl.DateTimeFormat('en-IN', {
+      day: 'numeric',
+      month: 'short',
+    }).format(d);
+  } catch {
+    return dateStr;
+  }
+}
+
+function formatFullDate(dateStr: string): string {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(`${dateStr}T00:00:00`);
+    if (isNaN(d.getTime())) return dateStr;
+    return new Intl.DateTimeFormat('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    }).format(d);
+  } catch {
+    return dateStr;
+  }
+}
 
 const SOURCE_COLORS = [
   '#0284c7',
@@ -86,13 +118,20 @@ export const AnalyticsPage: FC = () => {
       ].filter((item) => item.count > 0)
     : [];
 
+  const eventsOverTimeData = summary?.events_over_time
+    ? summary.events_over_time
+        .filter((item) => item.date && typeof item.count === 'number')
+        .map((item) => ({ date: item.date, count: item.count }))
+    : [];
+
   const isEmpty =
     !summary ||
     (summary.total_events === 0 &&
       eventTypeData.length === 0 &&
       stateData.length === 0 &&
       sourceData.length === 0 &&
-      verificationData.length === 0);
+      verificationData.length === 0 &&
+      eventsOverTimeData.length === 0);
 
   return (
     <div className="analytics-page">
@@ -165,6 +204,71 @@ export const AnalyticsPage: FC = () => {
 
           {/* Charts Grid */}
           <div className="analytics-charts-grid">
+            {/* Events Over Time Timeline Chart */}
+            <div className="analytics-chart-card full-width">
+              <div className="chart-card-header">
+                <div className="chart-card-titles">
+                  <h3 className="chart-card-title">Events Over Time</h3>
+                  <span className="chart-card-sub">Number of weather events recorded over time</span>
+                </div>
+                {eventsOverTimeData.length > 0 && (
+                  <span className="section-count">
+                    {eventsOverTimeData.length} {eventsOverTimeData.length === 1 ? 'day' : 'days'}
+                  </span>
+                )}
+              </div>
+              <div className="chart-container">
+                {eventsOverTimeData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <LineChart
+                      data={eventsOverTimeData}
+                      margin={{ top: 12, right: 24, left: -20, bottom: 20 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                      <XAxis
+                        dataKey="date"
+                        tickFormatter={formatDateLabel}
+                        tick={{ fill: '#64748b', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={{ stroke: '#e2e8f0' }}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        tick={{ fill: '#64748b', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={{ stroke: '#e2e8f0' }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#0f172a',
+                          borderColor: '#1e293b',
+                          borderRadius: '6px',
+                          color: '#f8fafc',
+                          fontSize: '12px',
+                        }}
+                        labelFormatter={(label) => formatFullDate(String(label))}
+                        itemStyle={{ color: '#38bdf8' }}
+                        formatter={(val) => [`${val} ${Number(val) === 1 ? 'event' : 'events'}`, 'Recorded']}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="count"
+                        name="Events"
+                        stroke="#0284c7"
+                        strokeWidth={2}
+                        dot={{ r: 4, fill: '#0284c7', stroke: '#ffffff', strokeWidth: 2 }}
+                        activeDot={{ r: 6, fill: '#0284c7', stroke: '#ffffff', strokeWidth: 2 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="analytics-chart-empty">
+                    <span>No event timeline data available.</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Event Types Chart */}
             {eventTypeData.length > 0 && (
               <div className="analytics-chart-card">
