@@ -108,7 +108,7 @@ export const AnalyticsPage: FC = () => {
   const verificationList = summary?.verification_breakdown || summary?.events_by_verification;
   const verificationData = verificationList
     ? verificationList
-        .filter((item) => typeof item.count === 'number' && item.count > 0)
+        .filter((item) => typeof item.count === 'number' && item.count > 0 && item.status !== 'Rejected')
         .map((item) => ({ name: item.status, count: item.count }))
     : summary
     ? [
@@ -117,6 +117,7 @@ export const AnalyticsPage: FC = () => {
         { name: 'Duplicate', count: summary.duplicate_events || 0 },
       ].filter((item) => item.count > 0)
     : [];
+
 
   const eventsOverTimeData = summary?.events_over_time
     ? summary.events_over_time

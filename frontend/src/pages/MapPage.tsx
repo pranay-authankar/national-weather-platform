@@ -135,27 +135,29 @@ export const MapPage: FC = () => {
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const processFetchedEvents = (fetchedEvents: MapWeatherEvent[]) => {
-    setEvents(fetchedEvents);
+    // Strictly exclude rejected reports from all map markers and regional summaries
+    const validEvents = fetchedEvents.filter((e) => e.verification_status !== 'Rejected');
+    setEvents(validEvents);
     setLoading(false);
 
     setKnownStates((prev) => {
       const combined = new Set([
         ...prev,
-        ...fetchedEvents.map((e) => e.state).filter((s): s is string => Boolean(s)),
+        ...validEvents.map((e) => e.state).filter((s): s is string => Boolean(s)),
       ]);
       return Array.from(combined).sort();
     });
     setKnownDistricts((prev) => {
       const combined = new Set([
         ...prev,
-        ...fetchedEvents.map((e) => e.district).filter((d): d is string => Boolean(d)),
+        ...validEvents.map((e) => e.district).filter((d): d is string => Boolean(d)),
       ]);
       return Array.from(combined).sort();
     });
     setKnownCities((prev) => {
       const combined = new Set([
         ...prev,
-        ...fetchedEvents.map((e) => e.city).filter((c): c is string => Boolean(c)),
+        ...validEvents.map((e) => e.city).filter((c): c is string => Boolean(c)),
       ]);
       return Array.from(combined).sort();
     });
@@ -335,7 +337,7 @@ export const MapPage: FC = () => {
             onChange={(e) => setSelectedStatus(e.target.value)}
           >
             <option value="">All Verification Statuses</option>
-            {VERIFICATION_STATUSES.map((status) => (
+            {VERIFICATION_STATUSES.filter((status) => status !== 'Rejected').map((status) => (
               <option key={status} value={status}>
                 {status}
               </option>

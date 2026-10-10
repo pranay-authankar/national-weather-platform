@@ -69,3 +69,35 @@ def get_all_locations_hierarchy() -> Dict[str, List[DistrictLocationResponse]]:
         state: [DistrictLocationResponse(**d) for d in districts]
         for state, districts in sorted(AUTHORITATIVE_LOCATIONS.items())
     }
+
+
+class DetectedLocationResponse(BaseModel):
+    """Resolved authoritative location for given coordinates."""
+    state: str = Field(..., description="Authoritative Indian state or Union Territory.")
+    district: str = Field(..., description="Authoritative administrative district.")
+    latitude: float = Field(..., description="Observed/detected latitude.")
+    longitude: float = Field(..., description="Observed/detected longitude.")
+    source: str = Field(default="nearest_district", description="Resolution method (reverse_geocoding or nearest_district).")
+
+
+@router.get(
+    "/detect",
+    response_model=DetectedLocationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Detect Authoritative State and District from GPS Coordinates",
+    description="Resolves latitude and longitude coordinates to an authoritative Indian state and district.",
+)
+async def detect_location(
+    latitude: float = Query(..., ge=-90.0, le=90.0, description="Latitude coordinate between -90.0 and 90.0 degrees."),
+    longitude: float = Query(..., ge=-180.0, le=180.0, description="Longitude coordinate between -180.0 and 180.0 degrees."),
+) -> DetectedLocationResponse:
+    from services.location_service import detect_location_from_coordinates
+
+    detected = await detect_location_from_coordinates(latitude, longitude)
+    if not detected:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Could not resolve an authoritative Indian state and district for the provided coordinates.",
+        )
+    return DetectedLocationResponse(**detected)
+

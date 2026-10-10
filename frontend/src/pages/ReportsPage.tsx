@@ -19,7 +19,7 @@ import {
   Check,
 } from 'lucide-react';
 import { submitCitizenReport, uploadMediaEvidence } from '../services/reportsApi';
-import { fetchStates, fetchDistricts } from '../services/locationsApi';
+import { fetchStates, fetchDistricts, detectLocation } from '../services/locationsApi';
 import type { CitizenReportPayload, LocationDistrict } from '../types/report';
 import { EVENT_TYPES } from '../utils/constants';
 import { VoiceInput } from '../components/VoiceInput';
@@ -52,6 +52,11 @@ export const ReportsPage: FC = () => {
   const [districtsList, setDistrictsList] = useState<LocationDistrict[]>([]);
   const [districtsLoading, setDistrictsLoading] = useState<boolean>(false);
   const [districtsError, setDistrictsError] = useState<string | null>(null);
+
+  // Geolocation detection state
+  const [isDetectingLocation, setIsDetectingLocation] = useState<boolean>(false);
+  const [locationDetectError, setLocationDetectError] = useState<string | null>(null);
+  const [locationDetectSuccess, setLocationDetectSuccess] = useState<string | null>(null);
 
   // Media evidence
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -184,6 +189,84 @@ export const ReportsPage: FC = () => {
     if (validationErrors.district) {
       setValidationErrors((prev) => ({ ...prev, district: '' }));
     }
+  };
+
+  // Handle Detect My Location via Browser Geolocation API
+  const handleDetectLocation = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setLocationDetectError(
+        'Browser geolocation is not supported in this environment. Please select your state and district manually.'
+      );
+      return;
+    }
+
+    setIsDetectingLocation(true);
+    setLocationDetectError(null);
+    setLocationDetectSuccess(null);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          const resolved = await detectLocation(latitude, longitude);
+          if (resolved && resolved.state && resolved.district) {
+            setSelectedState(resolved.state);
+            try {
+              const fetchedDistricts = await fetchDistricts(resolved.state);
+              setDistrictsList(fetchedDistricts);
+            } catch {
+              // Graceful fallback
+            }
+            setSelectedDistrict(resolved.district);
+            setSelectedCoords({ latitude, longitude });
+            setLocationDetectSuccess(`Detected: ${resolved.district}, ${resolved.state}`);
+            if (validationErrors.state || validationErrors.district) {
+              setValidationErrors((prev) => ({ ...prev, state: '', district: '' }));
+            }
+          } else {
+            setLocationDetectError(
+              'Could not resolve an authoritative Indian state and district for your coordinates. Please select manually.'
+            );
+          }
+        } catch {
+          setLocationDetectError(
+            'Unable to resolve location from coordinates. Please select your state and district manually.'
+          );
+        } finally {
+          setIsDetectingLocation(false);
+        }
+      },
+      (error) => {
+        setIsDetectingLocation(false);
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            setLocationDetectError(
+              'Location permission was denied. Please allow location access in your browser or select your state and district manually.'
+            );
+            break;
+          case error.POSITION_UNAVAILABLE:
+            setLocationDetectError(
+              'Location information is unavailable. Please check your network/GPS connection or select manually.'
+            );
+            break;
+          case error.TIMEOUT:
+            setLocationDetectError(
+              'Location request timed out. Please try again or select manually.'
+            );
+            break;
+          default:
+            setLocationDetectError(
+              'An error occurred while detecting your location. Please select manually.'
+            );
+            break;
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      }
+    );
   };
 
   // Handle Photo selection
@@ -666,6 +749,8 @@ export const ReportsPage: FC = () => {
       setSelectedState('');
       setSelectedDistrict('');
       setSelectedCoords(null);
+      setLocationDetectError(null);
+      setLocationDetectSuccess(null);
       handleRemovePhoto();
       handleRemoveVideo();
       setValidationErrors({});
@@ -774,13 +859,65 @@ export const ReportsPage: FC = () => {
           <div className="form-section-box">
             <div className="form-section-header">
               <span className="form-section-title">Observation Location</span>
-              {selectedCoords && (
-                <span className="location-coords-badge" title="Resolved authoritative coordinates">
-                  <MapPin size={11} aria-hidden="true" />
-                  {selectedCoords.latitude.toFixed(4)}°, {selectedCoords.longitude.toFixed(4)}°
-                </span>
-              )}
+              <div className="location-header-actions">
+                <button
+                  type="button"
+                  id="detect-location-btn"
+                  className="btn-location-helper"
+                  onClick={handleDetectLocation}
+                  disabled={isDetectingLocation || submitting}
+                  title="Detect your current location using browser GPS"
+                >
+                  {isDetectingLocation ? (
+                    <>
+                      <Loader2 size={12} className="btn-icon-spin" aria-hidden="true" />
+                      <span>Detecting location...</span>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin size={12} aria-hidden="true" />
+                      <span>Detect My Location</span>
+                    </>
+                  )}
+                </button>
+                {selectedCoords && (
+                  <span className="location-coords-badge" title="Resolved coordinates">
+                    <MapPin size={11} aria-hidden="true" />
+                    {selectedCoords.latitude.toFixed(4)}°, {selectedCoords.longitude.toFixed(4)}°
+                  </span>
+                )}
+              </div>
             </div>
+
+            {locationDetectSuccess && (
+              <div className="location-detect-alert success" role="status">
+                <Check size={13} aria-hidden="true" />
+                <span className="detect-alert-text">{locationDetectSuccess}</span>
+                <button
+                  type="button"
+                  className="detect-alert-close"
+                  onClick={() => setLocationDetectSuccess(null)}
+                  aria-label="Dismiss message"
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+
+            {locationDetectError && (
+              <div className="location-detect-alert error" role="alert">
+                <AlertCircle size={13} aria-hidden="true" />
+                <span className="detect-alert-text">{locationDetectError}</span>
+                <button
+                  type="button"
+                  className="detect-alert-close"
+                  onClick={() => setLocationDetectError(null)}
+                  aria-label="Dismiss error"
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </div>
+            )}
 
             <div className="form-row-two-col">
               {/* State Dropdown */}

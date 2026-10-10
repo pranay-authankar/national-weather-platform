@@ -92,8 +92,32 @@ async def get_analytics_summary(
             detail="Invalid time range: start_time cannot be greater than end_time.",
         )
 
+    # If caller explicitly filters by 'Rejected', return zeroed summary as rejected reports are excluded from analytics
+    if verification_status == "Rejected":
+        return AnalyticsSummaryResponse(
+            total_events=0,
+            verified_events=0,
+            likely_events=0,
+            unverified_events=0,
+            rejected_events=0,
+            duplicate_events=0,
+            verification_breakdown=[
+                VerificationSummary(status="Verified", count=0),
+                VerificationSummary(status="Likely", count=0),
+                VerificationSummary(status="Unverified", count=0),
+                VerificationSummary(status="Rejected", count=0),
+                VerificationSummary(status="Duplicate", count=0),
+            ],
+            events_by_type=[],
+            events_by_source=[],
+            events_by_state=[],
+            events_over_time=[],
+        )
+
     # 2. Construct parameterized SQL query filters
-    where_clauses: List[str] = []
+    where_clauses: List[str] = [
+        "(verification_status IS NULL OR verification_status != 'Rejected')",
+    ]
     params: Dict[str, Any] = {}
 
     if event_type is not None:
@@ -137,11 +161,12 @@ async def get_analytics_summary(
             COUNT(*) FILTER (WHERE verification_status = 'Verified') AS verified_events,
             COUNT(*) FILTER (WHERE verification_status = 'Likely') AS likely_events,
             COUNT(*) FILTER (WHERE verification_status = 'Unverified') AS unverified_events,
-            COUNT(*) FILTER (WHERE verification_status = 'Rejected') AS rejected_events,
+            0 AS rejected_events,
             COUNT(*) FILTER (WHERE verification_status = 'Duplicate') AS duplicate_events
         FROM public.weather_events
         {where_sql};
     """
+
 
     type_sql = f"""
         SELECT

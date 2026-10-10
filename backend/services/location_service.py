@@ -404,3 +404,146 @@ def resolve_district_coordinates(state: str, district: str) -> Optional[Tuple[fl
         return (districts[0]["latitude"], districts[0]["longitude"])
 
     return None
+
+
+def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great-circle distance between two points on Earth in kilometers."""
+    import math
+
+    r = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(delta_phi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0) ** 2
+    )
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return r * c
+
+
+STATE_ALIASES: Dict[str, str] = {
+    "delhi": "Delhi (NCT)",
+    "nct of delhi": "Delhi (NCT)",
+    "national capital territory of delhi": "Delhi (NCT)",
+    "orissa": "Odisha",
+    "pondicherry": "Puducherry",
+    "uttaranchal": "Uttarakhand",
+    "jammu and kashmir": "Jammu & Kashmir",
+    "andaman and nicobar": "Andaman & Nicobar Islands",
+    "andaman and nicobar islands": "Andaman & Nicobar Islands",
+    "dadra and nagar haveli and daman and diu": "Dadra & Nagar Haveli and Daman & Diu",
+    "daman and diu": "Dadra & Nagar Haveli and Daman & Diu",
+    "dadra and nagar haveli": "Dadra & Nagar Haveli and Daman & Diu",
+}
+
+
+def match_authoritative_state(state_name: str) -> Optional[str]:
+    """Match a state name against authoritative states including aliases."""
+    if not state_name:
+        return None
+    cleaned = state_name.strip().lower()
+    if cleaned in STATE_ALIASES:
+        return STATE_ALIASES[cleaned]
+    for auth_state in AUTHORITATIVE_LOCATIONS.keys():
+        if auth_state.lower() == cleaned:
+            return auth_state
+    for auth_state in AUTHORITATIVE_LOCATIONS.keys():
+        if cleaned in auth_state.lower() or auth_state.lower() in cleaned:
+            return auth_state
+    return None
+
+
+def match_authoritative_district(state: str, district_name: str) -> Optional[str]:
+    """Match a district name within a state against authoritative districts."""
+    districts = get_districts_for_state(state)
+    if not districts or not district_name:
+        return None
+    cleaned = district_name.strip().lower()
+
+    # Exact or substring match
+    for d in districts:
+        d_clean = d["district"].strip().lower()
+        if d_clean == cleaned:
+            return d["district"]
+    for d in districts:
+        d_clean = d["district"].strip().lower()
+        if cleaned in d_clean or d_clean in cleaned:
+            return d["district"]
+    return None
+
+
+async def detect_location_from_coordinates(
+    latitude: float,
+    longitude: float,
+) -> Optional[Dict[str, Any]]:
+    """
+    Identify authoritative state and district from GPS latitude and longitude.
+    1. Tries reverse geocoding via geocoding_service (Nominatim / OSM).
+    2. Matches resolved administrative names against authoritative options.
+    3. Falls back to nearest district centroid via Haversine distance within 500 km.
+    """
+    # Validate coordinate ranges
+    if not (-90.0 <= latitude <= 90.0) or not (-180.0 <= longitude <= 180.0):
+        return None
+
+    # Step 1: Try reverse-geocoding service
+    try:
+        from services.geocoding_service import reverse_geocode
+        geocoded = await reverse_geocode(latitude, longitude)
+        raw_state = geocoded.get("state")
+        raw_district = geocoded.get("district") or geocoded.get("city")
+
+        if raw_state:
+            matched_state = match_authoritative_state(raw_state)
+            if matched_state:
+                matched_district = None
+                if raw_district:
+                    matched_district = match_authoritative_district(matched_state, raw_district)
+
+                # If district couldn't be matched by name, find nearest district within that state
+                if not matched_district:
+                    districts_in_state = AUTHORITATIVE_LOCATIONS.get(matched_state, [])
+                    if districts_in_state:
+                        closest = min(
+                            districts_in_state,
+                            key=lambda d: haversine_distance_km(latitude, longitude, d["latitude"], d["longitude"]),
+                        )
+                        matched_district = closest["district"]
+
+                if matched_state and matched_district:
+                    return {
+                        "state": matched_state,
+                        "district": matched_district,
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "source": "reverse_geocoding",
+                    }
+    except Exception:
+        # Fall through to geospatial proximity
+        pass
+
+    # Step 2: Geospatial proximity fallback (find nearest district centroid in all of India)
+    best_match = None
+    min_dist = float("inf")
+
+    for state_name, districts in AUTHORITATIVE_LOCATIONS.items():
+        for d in districts:
+            dist = haversine_distance_km(latitude, longitude, d["latitude"], d["longitude"])
+            if dist < min_dist:
+                min_dist = dist
+                best_match = (state_name, d["district"])
+
+    # If within 500 km of an Indian district centroid, accept as closest match
+    if best_match and min_dist <= 500.0:
+        return {
+            "state": best_match[0],
+            "district": best_match[1],
+            "latitude": latitude,
+            "longitude": longitude,
+            "source": "nearest_district",
+        }
+
+    return None
+

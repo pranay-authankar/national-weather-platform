@@ -117,6 +117,25 @@ async def test_locations_api_endpoints():
         assert "Maharashtra" in data
         assert len(data["Maharashtra"]) > 0
 
+        # 5. Detect location endpoint - valid Indian coordinates (Mumbai)
+        res_detect = await client.get("/api/locations/detect?latitude=19.0760&longitude=72.8777")
+        assert res_detect.status_code == 200
+        detect_data = res_detect.json()
+        assert detect_data["state"] == "Maharashtra"
+        assert "district" in detect_data
+        assert detect_data["latitude"] == 19.0760
+        assert detect_data["longitude"] == 72.8777
+        assert "source" in detect_data
+
+        # 6. Detect location endpoint - outside India (London)
+        res_outside = await client.get("/api/locations/detect?latitude=51.5074&longitude=-0.1278")
+        assert res_outside.status_code == 404
+        assert "Could not resolve an authoritative Indian state and district" in res_outside.json()["detail"]
+
+        # 7. Detect location endpoint - invalid latitude bounds
+        res_invalid = await client.get("/api/locations/detect?latitude=99.0&longitude=72.0")
+        assert res_invalid.status_code == 422
+
 
 @pytest.mark.asyncio
 async def test_media_upload_endpoint():
@@ -173,7 +192,23 @@ async def test_media_upload_endpoint():
         assert res_empty.status_code == 400
 
 
+@pytest.mark.asyncio
+async def test_detect_location_from_coordinates_service():
+    """Verify detect_location_from_coordinates service logic directly."""
+    from services.location_service import detect_location_from_coordinates
+
+    # Delhi coordinates
+    delhi_res = await detect_location_from_coordinates(28.6139, 77.2090)
+    assert delhi_res is not None
+    assert "Delhi" in delhi_res["state"]
+
+    # Outside India (Atlantic ocean 0.0, 0.0)
+    outside_res = await detect_location_from_coordinates(0.0, 0.0)
+    assert outside_res is None
+
+
 if __name__ == "__main__":
     test_location_service_unit()
     test_citizen_report_schema_location_dropdowns()
     print("All sync tests passed!")
+

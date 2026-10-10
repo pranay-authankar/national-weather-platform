@@ -146,12 +146,17 @@ async def get_weather_events_map(
                 detail="Invalid bounding box: min_lon must be strictly less than max_lon.",
             )
 
+    # If caller explicitly filters by 'Rejected', return empty response as rejected reports are excluded from map
+    if verification_status == "Rejected":
+        return MapEventResponse(data=[], count=0)
+
     # 4. Construct parameterized SQL query
     where_clauses: List[str] = [
         "latitude IS NOT NULL",
         "longitude IS NOT NULL",
         "latitude BETWEEN -90.0 AND 90.0",
         "longitude BETWEEN -180.0 AND 180.0",
+        "(verification_status IS NULL OR verification_status != 'Rejected')",
     ]
     params: Dict[str, Any] = {"limit": limit}
 

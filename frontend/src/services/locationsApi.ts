@@ -1,5 +1,5 @@
-import apiClient from './api';
-import type { LocationDistrict } from '../types/report';
+import apiClient from './api.ts';
+import type { LocationDistrict } from '../types/report.ts';
 
 // Client-side authoritative fallback dataset for Indian States & Districts
 // Ensures resilient offline/fallback operation if backend is starting or temporarily unreachable
@@ -382,3 +382,100 @@ export async function fetchDistricts(state: string): Promise<LocationDistrict[]>
   }
   return FALLBACK_LOCATIONS[state] || [];
 }
+
+export interface DetectedLocationResult {
+  state: string;
+  district: string;
+  latitude: number;
+  longitude: number;
+  source?: string;
+}
+
+function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const r = 6371.0;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return r * c;
+}
+
+export async function detectLocation(
+  latitude: number,
+  longitude: number
+): Promise<DetectedLocationResult | null> {
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    return null;
+  }
+  try {
+    const response = await apiClient.get<DetectedLocationResult>('/api/locations/detect', {
+      params: { latitude, longitude },
+    });
+    if (response.data && response.data.state && response.data.district) {
+      return response.data;
+    }
+  } catch {
+    // Graceful fallback to client-side nearest district calculation
+  }
+
+  // Client-side geospatial fallback
+  let closest: { state: string; district: string } | null = null;
+  let minDistance = Infinity;
+
+  for (const [st, districts] of Object.entries(FALLBACK_LOCATIONS)) {
+    for (const d of districts) {
+      const dist = haversineDistanceKm(latitude, longitude, d.latitude, d.longitude);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closest = { state: st, district: d.district };
+      }
+    }
+  }
+
+  if (closest && minDistance <= 500) {
+    return {
+      state: closest.state,
+      district: closest.district,
+      latitude,
+      longitude,
+      source: 'nearest_district',
+    };
+  }
+
+  return null;
+}
+
+export async function fetchAllDistricts(): Promise<string[]> {
+  try {
+    const response = await apiClient.get<Record<string, LocationDistrict[]>>('/api/locations');
+    if (response.data && typeof response.data === 'object') {
+      const districtsSet = new Set<string>();
+      for (const list of Object.values(response.data)) {
+        if (Array.isArray(list)) {
+          for (const item of list) {
+            if (item.district) districtsSet.add(item.district);
+          }
+        }
+      }
+      if (districtsSet.size > 0) {
+        return Array.from(districtsSet).sort();
+      }
+    }
+  } catch {
+    // Graceful fallback to client-side list
+  }
+
+  const all = new Set<string>();
+  for (const list of Object.values(FALLBACK_LOCATIONS)) {
+    for (const item of list) {
+      if (item.district) all.add(item.district);
+    }
+  }
+  return Array.from(all).sort();
+}
+

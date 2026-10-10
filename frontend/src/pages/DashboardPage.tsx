@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, type FC, type FormEvent } from 'react';
 import { AlertCircle, X, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getEvents, getEventById } from '../services/eventsApi';
+import { fetchStates, fetchDistricts, fetchAllDistricts } from '../services/locationsApi';
 import type { WeatherEvent, EventFilters, EventsResponse } from '../types/event';
 import { EVENT_TYPES, DATA_SOURCES, VERIFICATION_STATUSES } from '../utils/constants';
 
@@ -87,7 +88,8 @@ export const DashboardPage: FC = () => {
   const [dateTo, setDateTo] = useState<string>('');
 
   const [knownStates, setKnownStates] = useState<string[]>([]);
-  const [knownDistricts, setKnownDistricts] = useState<string[]>([]);
+  const [districtOptions, setDistrictOptions] = useState<string[]>([]);
+  const [districtLoading, setDistrictLoading] = useState<boolean>(false);
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<WeatherEvent | null>(null);
@@ -111,14 +113,8 @@ export const DashboardPage: FC = () => {
       ]);
       return Array.from(combined).sort();
     });
-    setKnownDistricts((prev) => {
-      const combined = new Set([
-        ...prev,
-        ...fetchedEvents.map((e) => e.district).filter((d): d is string => Boolean(d)),
-      ]);
-      return Array.from(combined).sort();
-    });
   };
+
 
   const fetchEvents = useCallback((page: number = 1, filters?: EventFilters) => {
     setLoading(true);
@@ -152,6 +148,55 @@ export const DashboardPage: FC = () => {
       isMounted = false;
     };
   }, []);
+
+  // Fetch authoritative states on mount to populate state options
+  useEffect(() => {
+    let isMounted = true;
+    fetchStates()
+      .then((states) => {
+        if (!isMounted) return;
+        setKnownStates((prev) => Array.from(new Set([...prev, ...states])).sort());
+      })
+      .catch(() => {
+        // Graceful fallback
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Synchronize district options with selected state
+  useEffect(() => {
+    let isMounted = true;
+    async function updateDistrictOptions() {
+      const stateQuery = selectedState.trim();
+      setDistrictLoading(true);
+      try {
+        if (stateQuery) {
+          const fetched = await fetchDistricts(stateQuery);
+          if (!isMounted) return;
+          const names = fetched.map((d) => d.district).sort();
+          setDistrictOptions(names);
+          // If current selected district is not in the new state's districts, reset selection
+          setSelectedDistrict((prev) => (prev && !names.includes(prev) ? '' : prev));
+
+        } else {
+          const all = await fetchAllDistricts();
+          if (!isMounted) return;
+          setDistrictOptions(all);
+        }
+      } catch {
+        if (isMounted) setDistrictOptions([]);
+      } finally {
+        if (isMounted) setDistrictLoading(false);
+      }
+    }
+
+    updateDistrictOptions();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedState]);
 
   const handleApplyFilters = (e: FormEvent) => {
     e.preventDefault();
@@ -282,20 +327,26 @@ export const DashboardPage: FC = () => {
               ))}
             </datalist>
 
-            <input
-              type="text"
-              className="filter-control filter-input"
-              placeholder="District"
+            <select
+              className="filter-control filter-select"
               aria-label="Filter by district"
               value={selectedDistrict}
               onChange={(e) => setSelectedDistrict(e.target.value)}
-              list="known-districts-list"
-            />
-            <datalist id="known-districts-list">
-              {knownDistricts.map((d) => (
-                <option key={d} value={d} />
+              disabled={districtLoading}
+            >
+              <option value="">
+                {districtLoading
+                  ? 'Loading districts...'
+                  : districtOptions.length === 0
+                  ? (selectedState.trim() ? 'No districts for state' : 'No districts available')
+                  : 'District (All)'}
+              </option>
+              {districtOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
               ))}
-            </datalist>
+            </select>
 
             <select
               className="filter-control filter-select"
