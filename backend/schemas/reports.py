@@ -5,12 +5,14 @@ Adheres strictly to docs/api-contract.md.
 
 from datetime import datetime, timezone
 from typing import Any, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class CitizenReportCreate(BaseModel):
     """
     Schema for citizen weather report submission.
+    Supports either direct coordinates or administrative dropdown location (state + district).
+    Observation timestamp defaults automatically to submission time if omitted.
     """
     event_type: str = Field(
         ...,
@@ -22,23 +24,38 @@ class CitizenReportCreate(BaseModel):
         description="Detailed eyewitness description of the weather event.",
         examples=["Waterlogging up to 2 feet near local market after sudden torrential downpour."],
     )
-    latitude: float = Field(
-        ...,
+    latitude: Optional[float] = Field(
+        default=None,
         ge=-90.0,
         le=90.0,
         description="Latitude coordinate between -90.0 and 90.0 degrees.",
         examples=[19.0760],
     )
-    longitude: float = Field(
-        ...,
+    longitude: Optional[float] = Field(
+        default=None,
         ge=-180.0,
         le=180.0,
         description="Longitude coordinate between -180.0 and 180.0 degrees.",
         examples=[72.8777],
     )
-    timestamp: datetime = Field(
-        ...,
-        description="ISO-8601 observation timestamp.",
+    state: Optional[str] = Field(
+        default=None,
+        description="Administrative state name.",
+        examples=["Maharashtra"],
+    )
+    district: Optional[str] = Field(
+        default=None,
+        description="Administrative district name.",
+        examples=["Mumbai Suburban"],
+    )
+    city: Optional[str] = Field(
+        default=None,
+        description="Administrative city name.",
+        examples=["Mumbai"],
+    )
+    timestamp: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="ISO-8601 submission/observation timestamp. Defaults to current UTC time.",
         examples=["2026-10-08T18:30:00Z"],
     )
     image_url: Optional[str] = Field(
@@ -74,10 +91,21 @@ class CitizenReportCreate(BaseModel):
             raise ValueError("description cannot be empty or blank.")
         return trimmed
 
+    @field_validator("state", "district", "city", mode="before")
+    @classmethod
+    def sanitize_administrative_fields(cls, value: Any) -> Optional[str]:
+        """Trim and convert empty administrative location strings to None."""
+        if value is None:
+            return None
+        trimmed = str(value).strip()
+        return trimmed if trimmed else None
+
     @field_validator("timestamp")
     @classmethod
-    def ensure_timezone(cls, value: datetime) -> datetime:
+    def ensure_timezone(cls, value: Optional[datetime]) -> datetime:
         """Ensure observation timestamp has timezone awareness (defaults to UTC)."""
+        if value is None:
+            return datetime.now(timezone.utc)
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value
@@ -93,6 +121,18 @@ class CitizenReportCreate(BaseModel):
             return trimmed if trimmed else None
         return str(value)
 
+    @model_validator(mode="after")
+    def validate_location_presence(self) -> "CitizenReportCreate":
+        """Ensure either coordinates (latitude & longitude) or administrative location (state & district) exist."""
+        has_coords = self.latitude is not None and self.longitude is not None
+        has_dropdown = bool(self.state and (self.district or self.city))
+        if not has_coords and not has_dropdown:
+            raise ValueError(
+                "Either geographical coordinates (latitude and longitude) or "
+                "administrative location (state and district) must be provided."
+            )
+        return self
+
 
 class CitizenReportResponse(BaseModel):
     """
@@ -106,3 +146,16 @@ class CitizenReportResponse(BaseModel):
         default="received",
         description="Status of the submitted citizen report.",
     )
+
+
+class MediaUploadResponse(BaseModel):
+    """
+    Response schema for uploaded media evidence.
+    """
+    url: str = Field(..., description="Persistent URL to access uploaded media.")
+    relative_url: str = Field(..., description="Relative URL path to access uploaded media.")
+    filename: str = Field(..., description="Unique stored filename.")
+    media_type: str = Field(..., description="Media category: 'image' or 'video'.")
+    content_type: str = Field(..., description="MIME content type.")
+    size_bytes: int = Field(..., description="File size in bytes.")
+

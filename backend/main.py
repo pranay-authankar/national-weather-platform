@@ -33,12 +33,14 @@ from database import (
     check_database_connection,
     get_db_config,
 )
+from fastapi.staticfiles import StaticFiles
 from routers.analytics import router as analytics_router
 from routers.events import router as events_router
 from routers.map import router as map_router
 from routers.reports import router as reports_router
 from routers.data_gov import router as data_gov_router
 from routers.moderation import router as moderation_router
+from routers.locations import router as locations_router
 
 
 @asynccontextmanager
@@ -58,6 +60,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Persistent media uploads directory setup
+uploads_dir = backend_dir / "uploads"
+uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+
 # CORS Configuration
 origins = [
     "http://localhost:5173",
@@ -74,6 +81,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(reports_router)
+app.include_router(locations_router)
 app.include_router(analytics_router)
 app.include_router(map_router)
 app.include_router(events_router)

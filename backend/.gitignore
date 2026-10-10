@@ -10,3 +10,6 @@ env/
 # Python cache
 __pycache__/
 *.py[cod]
+
+# Uploaded user media
+uploads/
