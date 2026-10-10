@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 from typing import Any, Dict, Optional, Set
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from fastapi import HTTPException, UploadFile, status
 import httpx
 
@@ -84,12 +84,25 @@ SUPPORTED_AUDIO_EXTENSIONS: Set[str] = {
 }
 
 
+_last_env_mtime: float = 0.0
+
+
 def get_elevenlabs_config() -> Dict[str, Any]:
     """
     Retrieve ElevenLabs configuration from environment variables.
-    Re-checks environment in case variables were updated dynamically.
+    Automatically reloads backend/.env if the file was modified on disk,
+    while preserving test mocks and process overrides.
     """
-    load_dotenv(dotenv_path=env_path, override=False)
+    global _last_env_mtime
+    if env_path.exists():
+        try:
+            mtime = env_path.stat().st_mtime
+            if mtime > _last_env_mtime:
+                _last_env_mtime = mtime
+                load_dotenv(dotenv_path=env_path, override=True)
+        except Exception:
+            pass
+
     api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
     model_id = os.getenv("ELEVENLABS_MODEL_ID", DEFAULT_ELEVENLABS_MODEL_ID).strip() or DEFAULT_ELEVENLABS_MODEL_ID
     api_url = os.getenv("ELEVENLABS_API_URL", DEFAULT_ELEVENLABS_API_URL).strip() or DEFAULT_ELEVENLABS_API_URL
