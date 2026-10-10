@@ -4,3 +4,4 @@ httpx
 psycopg[binary]
 apscheduler
 python-dotenv
+python-multipart

@@ -11,10 +11,12 @@ import logging
 import uuid
 from typing import Any, Dict, Optional
 
+from datetime import datetime, timezone
 from database import sanitize_error_message
 from schemas.reports import CitizenReportCreate
 from services.duplicate_detection_service import detect_duplicate_report
 from services.geocoding_service import reverse_geocode
+from services.location_service import resolve_district_coordinates
 from services.report_credibility_service import evaluate_and_score_citizen_report
 from services.verification_service import verify_weather_event
 from services.weather_event_classifier import normalize_event_type
@@ -33,6 +35,8 @@ def generate_citizen_source_record_id() -> str:
 
 def normalize_citizen_report(
     report: CitizenReportCreate,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
     city: Optional[str] = None,
     district: Optional[str] = None,
     state: Optional[str] = None,
@@ -51,26 +55,29 @@ def normalize_citizen_report(
     - source is set to 'Citizen_Report'.
     - source_record_id is uniquely generated.
     - event_type is normalized against system canonical event types.
-    - timestamp is mapped to event_timestamp.
+    - timestamp is mapped to event_timestamp (defaults to UTC now if omitted).
     - image_url and video_url are stored when provided.
     - verification_status is set based on duplicate detection ('Duplicate' or 'Unverified').
     - confidence_score is populated if duplicate match occurs, else None.
-    - city, district, state are populated from reverse geocoding if provided, else None.
+    - city, district, state are populated from authoritative dropdown or reverse geocoding.
     - meteorological measurements are NEVER invented (kept as None).
     - duplicate_of is set to matching event ID if duplicate, else None.
     - credibility_score, credibility_status, credibility_reasons, source_trust_score populated.
     """
     source_record_id = generate_citizen_source_record_id()
     canonical_event_type = normalize_event_type(report.event_type)
+    final_lat = latitude if latitude is not None else report.latitude
+    final_lon = longitude if longitude is not None else report.longitude
+    final_timestamp = report.timestamp if report.timestamp is not None else datetime.now(timezone.utc)
 
     return {
         "source": "Citizen_Report",
         "source_record_id": source_record_id,
         "event_type": canonical_event_type,
         "description": report.description,
-        "event_timestamp": report.timestamp,
-        "latitude": report.latitude,
-        "longitude": report.longitude,
+        "event_timestamp": final_timestamp,
+        "latitude": final_lat,
+        "longitude": final_lon,
         "location": None,
         "city": city,
         "district": district,
@@ -142,11 +149,12 @@ async def process_and_store_citizen_report(
 ) -> Dict[str, Any]:
     """
     Orchestrate processing and persisting a citizen report into PostgreSQL:
-    1. Perform automated reverse-geocoding (deriving city/district/state from coordinates).
-    2. Perform spatio-temporal duplicate detection against existing weather events.
-    3. Normalize payload into public.weather_events schema.
-    4. Verify evidence (modular hook, deferred).
-    5. Safely persist record into Supabase PostgreSQL.
+    1. Resolve authoritative coordinates from state/district if not provided directly.
+    2. Perform automated reverse-geocoding (if state/district are not provided).
+    3. Perform spatio-temporal duplicate detection against existing weather events.
+    4. Normalize payload into public.weather_events schema.
+    5. Verify evidence (modular hook).
+    6. Safely persist record into Supabase PostgreSQL.
 
     Returns:
         Dict[str, Any]: Object containing event_id, status='received',
@@ -155,14 +163,39 @@ async def process_and_store_citizen_report(
     Raises:
         RuntimeError: If database persistence fails (credentials sanitized).
     """
-    # 1. Reverse-geocode coordinates to identify administrative location
-    geocoded = await reverse_geocode(report.latitude, report.longitude)
+    # 1. Resolve coordinates from direct input or authoritative state/district mapping
+    final_lat = report.latitude
+    final_lon = report.longitude
 
-    # 2. Automated duplicate detection
+    if final_lat is None or final_lon is None:
+        if report.state and (report.district or report.city):
+            resolved = resolve_district_coordinates(report.state, report.district or report.city)
+            if resolved:
+                final_lat, final_lon = resolved
+
+    if final_lat is None or final_lon is None:
+        raise ValueError("Valid geographical coordinates or an authoritative state and district must be provided.")
+
+    final_timestamp = report.timestamp or datetime.now(timezone.utc)
+
+    # 2. Administrative location resolution
+    # If state and district were selected from authoritative dropdowns, preserve them.
+    # Otherwise reverse-geocode coordinates.
+    if report.state and (report.district or report.city):
+        resolved_state = report.state
+        resolved_district = report.district
+        resolved_city = report.city or report.district
+    else:
+        geocoded = await reverse_geocode(final_lat, final_lon)
+        resolved_state = geocoded.get("state")
+        resolved_district = geocoded.get("district")
+        resolved_city = geocoded.get("city")
+
+    # 3. Automated duplicate detection
     dup_result = await detect_duplicate_report(
-        latitude=report.latitude,
-        longitude=report.longitude,
-        event_timestamp=report.timestamp,
+        latitude=final_lat,
+        longitude=final_lon,
+        event_timestamp=final_timestamp,
         event_type=report.event_type,
         description=report.description,
     )
@@ -173,12 +206,12 @@ async def process_and_store_citizen_report(
         confidence_score = dup_result.get("confidence_score")
     else:
         duplicate_of = None
-        # 3. Verification & confidence evaluation against independent evidence
+        # 4. Verification & confidence evaluation against independent evidence
         try:
             verif_res = await verify_weather_event(
-                latitude=report.latitude,
-                longitude=report.longitude,
-                event_timestamp=report.timestamp,
+                latitude=final_lat,
+                longitude=final_lon,
+                event_timestamp=final_timestamp,
                 event_type=report.event_type,
                 source="Citizen_Report",
                 current_status="Unverified",
@@ -189,19 +222,19 @@ async def process_and_store_citizen_report(
             sanitized_msg = sanitize_error_message(str(exc))
             logger.warning(
                 "Verification evaluation failed for report (%s, %s): %s. Storing as Unverified.",
-                report.latitude,
-                report.longitude,
+                final_lat,
+                final_lon,
                 sanitized_msg,
             )
             verification_status = "Unverified"
             confidence_score = None
 
-    # 4. Credibility scoring & source trust evaluation
+    # 5. Credibility scoring & source trust evaluation
     try:
         cred_res = await evaluate_and_score_citizen_report(
-            latitude=report.latitude,
-            longitude=report.longitude,
-            event_timestamp=report.timestamp,
+            latitude=final_lat,
+            longitude=final_lon,
+            event_timestamp=final_timestamp,
             event_type=report.event_type,
             description=report.description,
             is_duplicate=(verification_status == "Duplicate"),
@@ -215,8 +248,8 @@ async def process_and_store_citizen_report(
         sanitized_msg = sanitize_error_message(str(exc))
         logger.warning(
             "Credibility evaluation failed for report (%s, %s): %s. Storing default values.",
-            report.latitude,
-            report.longitude,
+            final_lat,
+            final_lon,
             sanitized_msg,
         )
         credibility_score = None
@@ -224,12 +257,14 @@ async def process_and_store_citizen_report(
         credibility_reasons = []
         source_trust_score = 50.0
 
-    # 5. Normalize report with geocoded divisions, verification, and credibility outcome
+    # 6. Normalize report with verified coordinates, divisions, and evaluation outcome
     record = normalize_citizen_report(
         report=report,
-        city=geocoded.get("city"),
-        district=geocoded.get("district"),
-        state=geocoded.get("state"),
+        latitude=final_lat,
+        longitude=final_lon,
+        city=resolved_city,
+        district=resolved_district,
+        state=resolved_state,
         verification_status=verification_status,
         duplicate_of=duplicate_of,
         confidence_score=confidence_score,
