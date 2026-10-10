@@ -40,7 +40,10 @@ from routers.map import router as map_router
 from routers.reports import router as reports_router
 from routers.data_gov import router as data_gov_router
 from routers.moderation import router as moderation_router
+
 from routers.locations import router as locations_router
+from routers.speech import router as speech_router
+
 
 
 @asynccontextmanager
@@ -87,6 +90,7 @@ app.include_router(map_router)
 app.include_router(events_router)
 app.include_router(data_gov_router)
 app.include_router(moderation_router)
+app.include_router(speech_router)
 
 
 
