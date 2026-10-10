@@ -3,6 +3,7 @@ Main FastAPI application for National Weather Big Data Analytics Platform.
 """
 
 from contextlib import asynccontextmanager
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -69,16 +70,23 @@ uploads_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 
 # CORS Configuration
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+if allowed_origins_env:
+    for origin in allowed_origins_env.split(","):
+        cleaned = origin.strip()
+        if cleaned and cleaned not in origins:
+            origins.append(cleaned)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
